@@ -7,8 +7,8 @@ export default function Home() {
       <div>
         <h1 className="text-2xl font-semibold">System status</h1>
         <p className="mt-1 text-sm text-zinc-500">
-          Sources, runs and costs arrive in later build steps. For now this page shows whether the
-          pieces are connected.
+          Whether the API, database and worker are connected. Sources and runs are in the menu;
+          costs and insights arrive in later build steps.
         </p>
       </div>
       <Suspense fallback={<p className="text-sm text-zinc-500">Checking services…</p>}>

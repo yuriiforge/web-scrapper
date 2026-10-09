@@ -24,7 +24,7 @@ export function appBundle(appDir: string, entry: Record<string, string>): Option
     entry,
     format: 'esm',
     platform: 'node',
-    target: 'node20',
+    target: 'node22',
     noExternal: [/^@lp\//],
     // A package and its subpaths, e.g. drizzle-orm and drizzle-orm/pg-core. Package names only contain . as a regex character.
     external: external.map((d) => new RegExp(`^${d.replaceAll('.', '\\.')}(/|$)`)),

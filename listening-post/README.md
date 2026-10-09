@@ -2,7 +2,7 @@
 
 A scraping platform pet project. It collects posts and reviews from the five fake sites in [`../mock-web`](../mock-web), stores them in PostgreSQL, scores sentiment by country and category, and shows everything in a Next.js dashboard.
 
-Status: **build step 1 of 8** (skeleton). Postgres, mock-web, a migration job, the API, the worker and the web app all run and report health. Collectors start in step 2.
+Status: **build step 2 of 8**. The collector framework and the Threadit collector are done, and the API runs on NestJS. Agora, Ratewell and Chirp collectors come in steps 3–5.
 
 ## Run it
 
@@ -12,14 +12,63 @@ docker compose up --build -d
 
 | URL | What |
 | --- | --- |
-| http://localhost:3000 | Dashboard (system status for now) |
+| http://localhost:3000 | Dashboard: status, Sources (with "Run now"), Runs (live while active, with "Cancel") |
 | http://localhost:3001/health | API health: database and worker heartbeat |
+| http://localhost:3001/api/... | REST API, see below |
 | http://localhost:4000 | mock-web, the sites being scraped |
 | `localhost:5432` | Postgres, user `lp`, password `lp`, database `listening_post` |
 
-`docker compose down -v` stops everything and deletes the database. The next `up` recreates it from the migrations.
+The first start adds two demo clients with four Threadit sources. Three of them have cron schedules (every 15 min, every 30 min, hourly), so data arrives without doing anything. A first full crawl of a community with comments takes about 10 minutes, because the collector stays under Threadit's limit of 60 requests a minute. Later runs read only what is new and finish in seconds.
 
-`/health` returns `ok`, `degraded` (database fine, no worker heartbeat in 30 s) or `down` (database unreachable, HTTP 503). Only `down` fails the API container's healthcheck, so a stopped worker never takes the API down with it.
+`docker compose down -v` stops everything and deletes the database.
+
+## How a run works
+
+1. A run starts in one of two ways. "Run now" (`POST /api/sources/:id/runs`) creates a `queued` run row and puts a job on the `collect` queue in pg-boss. A source's cron schedule puts a job there directly.
+2. The worker takes the job. The queue allows one active job per source, so runs of one source never overlap.
+3. The executor (`packages/collectors/src/run.ts`) asks the site's collector for one page at a time. Each response is:
+   1. stored gzipped in `raw_responses` (the body is skipped if it hasn't changed since the last fetch of that URL);
+   2. parsed and validated with Zod;
+   3. normalised and upserted into `items` on `(site, external_id)`, which counts new items exactly.
+4. When the run succeeds, the checkpoint moves to the newest item, so the next run stops there. A failed run leaves the checkpoint alone and is simply repeated next time.
+
+What happens on failure depends on the error class (`packages/collectors/src/errors.ts`):
+
+| Class | Example | Handling |
+| --- | --- | --- |
+| `transient` | 500/502/503, timeout, network error | Retried per request: 5 times, exponential backoff with ±30% jitter |
+| `rate_limited` | 429 | Waits `Retry-After`; doesn't count as a failure |
+| `auth` | 401 | Refreshes the token once, then fails |
+| `parse` | Layout changed, invalid JSON | Fails the run and keeps the response that broke it |
+| `bad_request` | Unknown community, invalid config | Fails without retrying |
+| `quota` | 402 | Ends the run as `partial` (used from step 5) |
+
+Rate limits are a token bucket per target host, stored in Postgres (`rate_buckets`), so the limit holds across restarts and across several workers. Threadit's collector also reads `X-Ratelimit-Remaining` and waits for the reset instead of spending a request on a 429. Cancelling a run takes effect within 2 seconds, even mid-page; what was already saved stays.
+
+## API
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/clients` · `POST /api/clients` | List, create |
+| `GET /api/sources?clientId=` · `POST /api/sources` | List (with last run and item count), create |
+| `GET/PATCH/DELETE /api/sources/:id` | Read (with checkpoint), update, delete |
+| `POST /api/sources/:id/runs` | Run now (202) |
+| `GET /api/runs?sourceId=&status=&limit=` | Run history, newest first |
+| `GET /api/runs/:id` · `POST /api/runs/:id/cancel` | Run detail, cancel |
+| `GET /api/runs/:id/raw` | Raw responses a run stored (no bodies) |
+
+Errors are always `{ "error": "<code>", "field"?: "...", "message"?: "..." }`.
+
+```sh
+curl -s localhost:3001/api/sources | jq '.[] | {name, itemCount, last: .lastRun.status}'
+curl -s -X POST localhost:3001/api/sources/<id>/runs
+curl -s -X POST localhost:3001/api/sources -H 'content-type: application/json' -d '{
+  "clientId": "<client id>", "name": "Threadit · fr", "site": "threadit",
+  "schedule": "*/20 * * * *", "config": { "community": "fr", "includeComments": false }
+}'
+```
+
+Threadit source config: `community` (required), `pageSize` (1–100, default 100), `includeComments` (default true), `maxPages`, `ratePerMinute` (default 50).
 
 ## Develop without Docker
 
@@ -27,28 +76,46 @@ docker compose up --build -d
 npm install
 cp .env.example .env
 docker compose up -d postgres mock-web   # just the dependencies
-npm run db:migrate
-npm run dev:api      # http://localhost:3001
+npm run db:migrate && npm run db:seed
+npm run dev:api      # http://localhost:3001 (tsup watch: NestJS needs SWC's decorator metadata)
 npm run dev:worker
 npm run dev:web      # http://localhost:3000
 ```
 
-Checks: `npm run typecheck`, `npm test`, `npm run lint -w @lp/web`.
+## Tests
+
+```sh
+npm test                    # unit tests: no database or network (19 tests)
+npm run test:integration    # needs `docker compose up -d postgres` and ../mock-web with its dependencies installed
+npm run typecheck
+npm run lint -w @lp/web
+```
+
+The integration tests use a separate `listening_post_test` database, which they drop and recreate. They also start mock-web in-process, so each test can set its own limits and chaos. They cover the step 2 acceptance checks:
+
+- a full run stores every post and comment exactly once;
+- a second run adds nothing;
+- 10 requests a minute finishes with zero 429s;
+- a 2-second token lifetime is refreshed during the run;
+
+plus retries under 30% server errors, layout-change detection, an unknown community, prompt cancellation, and a retried job being a no-op. The rate-limit test waits about a minute by design.
 
 ## Layout
 
 ```text
 apps/
-  api/        Express API (bundled with tsup)
-  worker/     background jobs: heartbeat now, collectors from step 2
-  web/        Next.js 16 dashboard (standalone output)
+  api/          NestJS 12: health, clients, sources, runs (bundled with tsup + SWC)
+  worker/       pg-boss consumer, schedule sync, stale-run sweep, raw retention, heartbeat
+  web/          Next.js 16 dashboard (standalone output)
 packages/
-  shared/     domain constants and Zod env schemas
-  db/         Drizzle schema, migrations (drizzle/), client, migrate CLI
-Dockerfile    one file, targets api | worker | web
+  shared/       domain constants, Zod env and API schemas, per-site source config
+  db/           Drizzle schema, migrations (drizzle/), client, migrate and seed CLIs
+  queue/        pg-boss setup, queue names and job types
+  collectors/   framework (HTTP client, limiter, executor, errors) + one folder per site
+Dockerfile      one file, targets api | worker | web (Node 22)
 ```
 
-Workspace packages are plain TypeScript source (`"exports": "./src/index.ts"`). `tsx` runs them in development, tsup bundles them into each app's `dist/` for production, and Next.js compiles them itself. npm dependencies are never bundled; `tsup.preset.ts` keeps them external.
+Workspace packages are plain TypeScript source (`"exports": "./src/index.ts"`). tsup bundles them into each app's `dist/`; npm dependencies are never bundled (`tsup.preset.ts`). The API compiles through SWC because NestJS needs decorator metadata, which esbuild doesn't emit. Vitest uses SWC for the same reason.
 
 ## Changing the database
 
@@ -59,5 +126,6 @@ Workspace packages are plain TypeScript source (`"exports": "./src/index.ts"`). 
 ## Notes
 
 - After creating a new workspace's `package.json`, run `npm install` once before `npm i <pkg> -w <name>`. Otherwise npm silently skips the install.
+- pg-boss 12 needs Node 22.12 or newer, so the images use Node 22 (mock-web stays on 20).
 - `npm audit` reports moderate advisories in esbuild's dev server, which comes in through drizzle-kit and tsup. This project never starts that server.
 - Next.js 16 ships its docs in `node_modules/next/dist/docs/`; see `apps/web/AGENTS.md`.

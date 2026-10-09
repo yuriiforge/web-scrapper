@@ -10,7 +10,9 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@lp/collectors": "^0.1.0",
     "@lp/db": "^0.1.0",
+    "@lp/queue": "^0.1.0",
     "@lp/shared": "^0.1.0",
     "pino": "^10.4.0"
   }

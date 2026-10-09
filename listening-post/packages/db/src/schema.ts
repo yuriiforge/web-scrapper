@@ -216,3 +216,10 @@ export const workerHeartbeats = pgTable('worker_heartbeats', {
   lastSeen: timestamp('last_seen', { withTimezone: true }).notNull().defaultNow(),
   startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
 });
+
+/** Token buckets for outbound rate limits, shared by all worker processes. */
+export const rateBuckets = pgTable('rate_buckets', {
+  key: text('key').primaryKey(),
+  tokens: real('tokens').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

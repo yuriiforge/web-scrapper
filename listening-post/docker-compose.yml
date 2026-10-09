@@ -37,12 +37,13 @@ services:
       retries: 5
       start_period: 10s
 
-  # Applies database migrations once, then exits. The API and worker wait for it.
+  # Applies database migrations and adds the demo clients and sources once, then exits.
+  # The API and worker wait for it.
   migrate:
     build:
       context: .
       target: api
-    command: ["node", "dist/migrate.js"]
+    command: ["sh", "-c", "node dist/migrate.js && node dist/seed.js"]
     environment: *db-env
     depends_on:
       postgres:
@@ -78,6 +79,7 @@ services:
     environment:
       <<: *db-env
       SOURCE_BASE_URL: http://mock-web:4000
+      WORKER_CONCURRENCY: 4
       HEARTBEAT_INTERVAL_MS: 10000
     depends_on:
       migrate:

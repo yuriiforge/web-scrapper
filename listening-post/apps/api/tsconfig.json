@@ -1,4 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["src", "test", "tsup.config.ts"]
+  "compilerOptions": {
+    // NestJS resolves constructor dependencies from decorator metadata.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    // Type-only imports of injected classes would be erased under verbatimModuleSyntax and break DI.
+    "verbatimModuleSyntax": false
+  },
+  "include": ["src", "test", "tsup.config.ts", "vitest.config.ts"]
 }

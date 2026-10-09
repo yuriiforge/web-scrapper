@@ -7,7 +7,8 @@
   "scripts": {
     "generate": "drizzle-kit generate",
     "migrate": "tsx --env-file-if-exists=../../.env src/migrate-cli.ts",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "seed": "tsx --env-file-if-exists=../../.env src/seed-cli.ts"
   },
   "devDependencies": {
     "@types/pg": "^8.23.1",
