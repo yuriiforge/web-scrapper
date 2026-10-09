@@ -1,0 +1,31 @@
+{
+  "name": "listening-post",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Scraping platform pet project: collects from mock-web, scores sentiment, shows it in a dashboard.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "db:generate": "npm run generate -w @lp/db",
+    "db:migrate": "npm run migrate -w @lp/db",
+    "dev:api": "npm run dev -w @lp/api",
+    "dev:worker": "npm run dev -w @lp/worker",
+    "dev:web": "npm run dev -w @lp/web"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  }
+}

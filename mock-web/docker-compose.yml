@@ -1,0 +1,29 @@
+services:
+  mock-web:
+    build: .
+    image: mock-web:latest
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      SEED: 42
+      # Uncomment for fully repeatable item dates across runs.
+      # MOCK_NOW: "2026-10-07T12:00:00Z"
+      THREADIT_CLIENT_ID: dev-id
+      THREADIT_CLIENT_SECRET: dev-secret
+      THREADIT_TOKEN_TTL: 300
+      THREADIT_RATE: 60
+      AGORA_RATE: 10
+      RATEWELL_RATE: 30
+      PASSGATE_KEY: pg-dev-key
+      PASSGATE_CREDITS: 2000
+      CHIRP_KEY: chirp-dev-key
+      CHIRP_CREDITS: 10000
+      CHIRP_RATE: 30
+      LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/_health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s

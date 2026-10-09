@@ -1,0 +1,115 @@
+name: listening-post
+
+x-db-env: &db-env
+  DATABASE_URL: postgres://lp:lp@postgres:5432/listening_post
+  LOG_LEVEL: info
+
+services:
+  postgres:
+    restart: unless-stopped
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lp
+      POSTGRES_PASSWORD: lp
+      POSTGRES_DB: listening_post
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lp -d listening_post"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mock-web:
+    restart: unless-stopped
+    build: ../mock-web
+    environment:
+      SEED: 42
+      MOCK_NOW: "2026-10-07T12:00:00Z"
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/_health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # Applies database migrations once, then exits. The API and worker wait for it.
+  migrate:
+    build:
+      context: .
+      target: api
+    command: ["node", "dist/migrate.js"]
+    environment: *db-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    restart: unless-stopped
+    build:
+      context: .
+      target: api
+    environment:
+      <<: *db-env
+      API_PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # /health answers 503 only when the database is unreachable.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  worker:
+    restart: unless-stopped
+    build:
+      context: .
+      target: worker
+    environment:
+      <<: *db-env
+      SOURCE_BASE_URL: http://mock-web:4000
+      HEARTBEAT_INTERVAL_MS: 10000
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mock-web:
+        condition: service_healthy
+    healthcheck:
+      # Healthy while the heartbeat file is less than 30 seconds old.
+      test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/worker-heartbeat) )) -lt 30"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+  web:
+    restart: unless-stopped
+    build:
+      context: .
+      target: web
+    environment:
+      API_URL: http://api:3001
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pgdata:

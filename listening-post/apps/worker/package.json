@@ -1,0 +1,17 @@
+{
+  "name": "@lp/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@lp/db": "^0.1.0",
+    "@lp/shared": "^0.1.0",
+    "pino": "^10.4.0"
+  }
+}
