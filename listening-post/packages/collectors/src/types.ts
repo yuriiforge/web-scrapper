@@ -21,6 +21,8 @@ export interface RunContext {
   signal: AbortSignal;
   sleep: Sleep;
   now: () => number;
+  /** ETag from the last successful run for a URL, for If-None-Match. New ETags are saved by the executor. */
+  etag: (url: string) => Promise<string | undefined>;
 }
 
 /** What one fetchPage call produced. */
@@ -39,6 +41,8 @@ export interface Collector<State = unknown, Checkpoint = unknown> {
   readonly strategy: Strategy;
   /** Outbound requests per minute to this site; the worker default applies when unset. */
   readonly ratePerMinute?: number;
+  /** Requests allowed back-to-back; 1 means strictly evenly spaced (e.g. for a robots.txt Crawl-delay). */
+  readonly burst?: number;
   /** Where a run starts, given the checkpoint from the last successful run (null on the first run). */
   initialState(checkpoint: Checkpoint | null): State;
   /** Fetches one unit of work (a page, plus anything that hangs off it). */

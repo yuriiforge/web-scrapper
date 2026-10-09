@@ -223,3 +223,13 @@ export const rateBuckets = pgTable('rate_buckets', {
   tokens: real('tokens').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Validators for conditional requests (If-None-Match), one row per URL. Written only when a run
+ * succeeds, so a failed run never leaves an ETag that would hide content it did not store.
+ */
+export const httpCache = pgTable('http_cache', {
+  url: text('url').primaryKey(),
+  etag: text('etag').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

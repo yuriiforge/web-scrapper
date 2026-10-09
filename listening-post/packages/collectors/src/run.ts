@@ -1,5 +1,5 @@
 import { gzipSync } from 'node:zlib';
-import { checkpoints, items, rawResponses, runs, sources, type Db } from '@lp/db';
+import { checkpoints, httpCache, items, rawResponses, runs, sources, type Db } from '@lp/db';
 import type { RunStatus, RunTrigger } from '@lp/shared';
 import { and, desc, eq, ne, sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
@@ -97,15 +97,26 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
 
   try {
     const collector = (deps.createCollector ?? defaultCreateCollector)(source, deps.collectorDeps);
-    const limit = rateLimit(collector.ratePerMinute ?? deps.defaultRatePerMinute);
+    const perMinute = collector.ratePerMinute ?? deps.defaultRatePerMinute;
+    const limit = collector.burst === undefined ? rateLimit(perMinute) : { perMinute, burst: collector.burst };
     const http = new HttpClient({
       log,
       signal: controller.signal,
       sleep,
-      acquire: (url) => deps.limiter.acquire(`host:${new URL(url).host}`, limit, controller.signal),
+      // One bucket per site per host: several sites can share a host (they do in mock-web), each with its own limit.
+      acquire: (url) => deps.limiter.acquire(`${source.site}:${new URL(url).host}`, limit, controller.signal),
       ...deps.http,
     });
-    const ctx: RunContext = { http, log, signal: controller.signal, sleep, now };
+    const ctx: RunContext = {
+      http,
+      log,
+      signal: controller.signal,
+      sleep,
+      now,
+      etag: async (url) => (await db.select({ etag: httpCache.etag }).from(httpCache).where(eq(httpCache.url, url)))[0]?.etag,
+    };
+    /** ETags of responses parsed this run; saved only if the run succeeds. */
+    const etags = new Map<string, string>();
     const [cp] = await db.select().from(checkpoints).where(eq(checkpoints.sourceId, source.id));
     const expiresAt = new Date(now() + deps.rawRetentionDays * 86_400_000);
 
@@ -118,6 +129,7 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
         const rawId = await saveRaw(db, runId, raw, expiresAt);
         saved.add(raw);
         const { found, inserted } = await upsertItems(db, source, rawId, collector.parse(raw));
+        if (raw.status === 200 && raw.headers.etag) etags.set(raw.url, raw.headers.etag);
         counters.itemsFound += found;
         counters.itemsNew += inserted;
       }
@@ -128,6 +140,7 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
 
     await db.transaction(async (tx) => {
       await saveCheckpoint(tx, source.id, collector);
+      await saveEtags(tx, etags);
       await finish(tx, runId, 'succeeded', counters, now);
     });
     log.info(counters, 'run succeeded');
@@ -175,6 +188,18 @@ async function finish(
     .set({ status, ...counters, finishedAt: new Date(now()), errorClass: error?.errorClass ?? null, errorMessage: error?.errorMessage ?? null })
     // A cancel that lands during the last page wins: never overwrite `cancelled` with another outcome.
     .where(status === 'cancelled' ? eq(runs.id, runId) : and(eq(runs.id, runId), ne(runs.status, 'cancelled')));
+}
+
+async function saveEtags(db: DbOrTx, etags: Map<string, string>): Promise<void> {
+  if (etags.size === 0) return;
+  const rows = [...etags].map(([url, etag]) => ({ url, etag, updatedAt: new Date() }));
+  // Chunked: one statement has a parameter limit.
+  for (let i = 0; i < rows.length; i += 1000) {
+    await db
+      .insert(httpCache)
+      .values(rows.slice(i, i + 1000))
+      .onConflictDoUpdate({ target: httpCache.url, set: { etag: sql`excluded.etag`, updatedAt: sql`excluded.updated_at` } });
+  }
 }
 
 async function saveCheckpoint(db: DbOrTx, sourceId: string, collector: Collector): Promise<void> {

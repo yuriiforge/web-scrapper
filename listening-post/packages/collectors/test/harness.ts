@@ -44,7 +44,10 @@ interface MockConfigModule {
 }
 /** The parts of mock-web's context the tests look at. */
 export interface MockCtx {
-  corpus: { threadit: { posts: { id: string; community: string; comments: { id: string }[] }[] } };
+  corpus: {
+    threadit: { posts: { id: string; community: string; comments: { id: string }[] }[] };
+    agora: { topics: { id: string; category: string; lastPosted: number; posts: { id: string; text: string }[] }[] };
+  };
   state: { requests: { entries: { path: string; status: number; site: string }[] } };
 }
 
@@ -78,6 +81,12 @@ export async function startMockWeb(env: Record<string, string> = {}): Promise<Mo
   };
 }
 
+/** mock-web's request log summary for one site since a moment (epoch ms). */
+export async function requestStats(mock: MockWeb, site: string, since: number) {
+  const res = await fetch(`${mock.url}/_admin/requests?site=${site}&since=${since}`);
+  return (await res.json()) as { total: number; counts: Record<string, Record<string, number>>; peak_rps: number; entries: { path: string; status: number }[] };
+}
+
 /** Executor dependencies pointed at a mock-web instance, with fast backoff for tests. */
 export function executorDeps(handle: DbHandle, mock: MockWeb): ExecutorDeps {
   return {
@@ -91,7 +100,12 @@ export function executorDeps(handle: DbHandle, mock: MockWeb): ExecutorDeps {
   };
 }
 
-export async function createSource(handle: DbHandle, config: Record<string, unknown>, name = 'test source'): Promise<string> {
+export async function createSource(
+  handle: DbHandle,
+  config: Record<string, unknown>,
+  name = 'test source',
+  site: 'threadit' | 'agora' = 'threadit',
+): Promise<string> {
   const [client] = await handle.db
     .insert(clients)
     .values({ name: `client for ${name}` })
@@ -100,7 +114,7 @@ export async function createSource(handle: DbHandle, config: Record<string, unkn
   const [source] = await handle.db
     .insert(sources)
     // Tests run far faster than the real default rate allows, unless a test sets its own.
-    .values({ clientId: client!.id, name, site: 'threadit', strategy: 'api', config: { ratePerMinute: 100_000, ...config } })
+    .values({ clientId: client!.id, name, site, strategy: site === 'threadit' ? 'api' : 'html', config: { ratePerMinute: 100_000, ...config } })
     .returning({ id: sources.id });
   return source!.id;
 }

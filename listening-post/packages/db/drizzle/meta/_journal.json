@@ -15,6 +15,13 @@
       "when": 1791540668636,
       "tag": "0001_rate_buckets",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791543998182,
+      "tag": "0002_http_cache",
+      "breakpoints": true
     }
   ]
 }

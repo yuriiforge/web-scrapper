@@ -17,9 +17,25 @@ export const threaditConfig = z.object({
 });
 export type ThreaditConfig = z.infer<typeof threaditConfig>;
 
+export const agoraConfig = z.object({
+  /** Category slug, e.g. "meal-kits"; unset collects every category through the latest-activity listing. */
+  category: z
+    .string()
+    .regex(/^[a-z0-9-]+$/, 'lower-case letters, digits and - only')
+    .optional(),
+  /** "json" uses the hidden .json endpoints (smaller, steadier); "html" parses the pages people see. */
+  format: z.enum(['json', 'html']).default('json'),
+  /** Stop after this many changed topics in one run. */
+  maxTopics: z.number().int().min(1).optional(),
+  /** Never faster than robots.txt Crawl-delay allows, whatever is set here. */
+  ratePerMinute: z.number().int().min(1).optional(),
+});
+export type AgoraConfig = z.infer<typeof agoraConfig>;
+
 /** Sites whose collectors exist so far. Others are added in later build steps. */
 export const SOURCE_CONFIGS = {
   threadit: threaditConfig,
+  agora: agoraConfig,
 } as const satisfies Partial<Record<Site, z.ZodType>>;
 
 export const SUPPORTED_SITES = Object.keys(SOURCE_CONFIGS) as (keyof typeof SOURCE_CONFIGS)[];
@@ -38,6 +54,7 @@ const sourceBase = z.object({
 
 export const createSourceSchema = z.discriminatedUnion('site', [
   sourceBase.extend({ site: z.literal('threadit'), config: threaditConfig }),
+  sourceBase.extend({ site: z.literal('agora'), config: agoraConfig, strategy: z.enum(STRATEGIES).default('html') }),
 ]);
 export type CreateSource = z.infer<typeof createSourceSchema>;
 

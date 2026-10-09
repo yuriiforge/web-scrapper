@@ -2,7 +2,7 @@
 
 A scraping platform pet project. It collects posts and reviews from the five fake sites in [`../mock-web`](../mock-web), stores them in PostgreSQL, scores sentiment by country and category, and shows everything in a Next.js dashboard.
 
-Status: **build step 2 of 8**. The collector framework and the Threadit collector are done, and the API runs on NestJS. Agora, Ratewell and Chirp collectors come in steps 3–5.
+Status: **build step 3 of 8**. The collector framework, Threadit (official API) and Agora (forum: HTML, hidden JSON, robots.txt, ETags) are done, and the API runs on NestJS. Ratewell and Chirp come in steps 4–5. Each source has a short write-up of why it uses its strategy in [`docs/sources/`](docs/sources).
 
 ## Run it
 
@@ -18,7 +18,9 @@ docker compose up --build -d
 | http://localhost:4000 | mock-web, the sites being scraped |
 | `localhost:5432` | Postgres, user `lp`, password `lp`, database `listening_post` |
 
-The first start adds two demo clients with four Threadit sources. Three of them have cron schedules (every 15 min, every 30 min, hourly), so data arrives without doing anything. A first full crawl of a community with comments takes about 10 minutes, because the collector stays under Threadit's limit of 60 requests a minute. Later runs read only what is new and finish in seconds.
+The first start adds two demo clients with six sources: four on Threadit and two on Agora (one reading JSON, one parsing HTML). Five have cron schedules, so data arrives without doing anything.
+
+First crawls are slow on purpose. A Threadit community with comments takes about 10 minutes, because the collector stays under Threadit's limit of 60 requests a minute. An Agora category takes about 5 minutes, because robots.txt asks for one request a second. Later runs read only what is new and finish in seconds. On Agora, a rerun with nothing new costs two 304 responses.
 
 `docker compose down -v` stops everything and deletes the database.
 
@@ -39,11 +41,11 @@ What happens on failure depends on the error class (`packages/collectors/src/err
 | `transient` | 500/502/503, timeout, network error | Retried per request: 5 times, exponential backoff with ±30% jitter |
 | `rate_limited` | 429 | Waits `Retry-After`; doesn't count as a failure |
 | `auth` | 401 | Refreshes the token once, then fails |
-| `parse` | Layout changed, invalid JSON | Fails the run and keeps the response that broke it |
+| `parse` | Layout changed, invalid JSON, missing CSS marker | Fails the run and keeps the response that broke it |
 | `bad_request` | Unknown community, invalid config | Fails without retrying |
 | `quota` | 402 | Ends the run as `partial` (used from step 5) |
 
-Rate limits are a token bucket per target host, stored in Postgres (`rate_buckets`), so the limit holds across restarts and across several workers. Threadit's collector also reads `X-Ratelimit-Remaining` and waits for the reset instead of spending a request on a 429. Cancelling a run takes effect within 2 seconds, even mid-page; what was already saved stays.
+Rate limits are a token bucket per site and target host, stored in Postgres (`rate_buckets`), so the limit holds across restarts and across several workers. Threadit's collector also reads `X-Ratelimit-Remaining` and waits for the reset instead of spending a request on a 429. Cancelling a run takes effect within 2 seconds, even mid-page; what was already saved stays.
 
 ## API
 
@@ -68,7 +70,10 @@ curl -s -X POST localhost:3001/api/sources -H 'content-type: application/json' -
 }'
 ```
 
-Threadit source config: `community` (required), `pageSize` (1–100, default 100), `includeComments` (default true), `maxPages`, `ratePerMinute` (default 50).
+Source config by site:
+
+- **Threadit:** `community` (required), `pageSize` (1–100, default 100), `includeComments` (default true), `maxPages`, `ratePerMinute` (default 50).
+- **Agora:** `category` (a slug such as `meal-kits`; unset means every category), `format` (`json` default, or `html`), `maxTopics`, `ratePerMinute` (at most 60; robots.txt Crawl-delay always applies).
 
 ## Develop without Docker
 
@@ -85,20 +90,20 @@ npm run dev:web      # http://localhost:3000
 ## Tests
 
 ```sh
-npm test                    # unit tests: no database or network (19 tests)
+npm test                    # unit tests: no database or network (24 tests)
 npm run test:integration    # needs `docker compose up -d postgres` and ../mock-web with its dependencies installed
 npm run typecheck
 npm run lint -w @lp/web
 ```
 
-The integration tests use a separate `listening_post_test` database, which they drop and recreate. They also start mock-web in-process, so each test can set its own limits and chaos. They cover the step 2 acceptance checks:
+The integration tests use a separate `listening_post_test` database, which they drop and recreate. They also start mock-web in-process, so each test can set its own limits and chaos. They take about 2 minutes, and include the acceptance checks for each build step:
 
-- a full run stores every post and comment exactly once;
-- a second run adds nothing;
-- 10 requests a minute finishes with zero 429s;
-- a 2-second token lifetime is refreshed during the run;
+| Step | Checks |
+| --- | --- |
+| 2 · Threadit | A full run stores every post and comment exactly once; a second run adds nothing; 10 requests a minute finishes with zero 429s; a 2-second token lifetime is refreshed during the run |
+| 3 · Agora | HTML and JSON parsers produce identical items (over 300 posts compared); a rerun with nothing new gets mostly 304s; at most 1 request a second and no hits on `/agora/admin/` |
 
-plus retries under 30% server errors, layout-change detection, an unknown community, prompt cancellation, and a retried job being a no-op. The rate-limit test waits about a minute by design.
+They also cover retries under 30% server errors, layout-change detection in each format, an unknown community, incremental runs after new posts, prompt cancellation, and a retried job being a no-op. The Threadit rate-limit test waits about a minute by design.
 
 ## Layout
 

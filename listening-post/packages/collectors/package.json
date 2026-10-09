@@ -10,6 +10,7 @@
   "dependencies": {
     "@lp/db": "^0.1.0",
     "@lp/shared": "^0.1.0",
+    "cheerio": "^1.2.0",
     "drizzle-orm": "^0.45.4",
     "pino": "^10.4.0",
     "zod": "^4.6.5"
