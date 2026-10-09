@@ -2,7 +2,7 @@
 
 A scraping platform pet project. It collects posts and reviews from the five fake sites in [`../mock-web`](../mock-web), stores them in PostgreSQL, scores sentiment by country and category, and shows everything in a Next.js dashboard.
 
-Status: **build step 3 of 8**. The collector framework, Threadit (official API) and Agora (forum: HTML, hidden JSON, robots.txt, ETags) are done, and the API runs on NestJS. Ratewell and Chirp come in steps 4–5. Each source has a short write-up of why it uses its strategy in [`docs/sources/`](docs/sources).
+Status: **steps 1–3 and the step 8 dashboard are done**. That covers the collector framework, Threadit (official API), Agora (forum: HTML, hidden JSON, robots.txt, ETags), a NestJS API, and a dashboard with sources, runs, items, costs and insights. Still to come: Ratewell and Chirp (steps 4–5), monitoring and alerts (step 6), and sentiment scoring (step 7). Until step 7, the sentiment grid on Insights is empty. Each source has a short write-up of why it uses its strategy in [`docs/sources/`](docs/sources).
 
 ## Run it
 
@@ -12,7 +12,7 @@ docker compose up --build -d
 
 | URL | What |
 | --- | --- |
-| http://localhost:3000 | Dashboard: status, Sources (with "Run now"), Runs (live while active, with "Cancel") |
+| http://localhost:3000 | Dashboard, described below |
 | http://localhost:3001/health | API health: database and worker heartbeat |
 | http://localhost:3001/api/... | REST API, see below |
 | http://localhost:4000 | mock-web, the sites being scraped |
@@ -23,6 +23,21 @@ The first start adds two demo clients with six sources: four on Threadit and two
 First crawls are slow on purpose. A Threadit community with comments takes about 10 minutes, because the collector stays under Threadit's limit of 60 requests a minute. An Agora category takes about 5 minutes, because robots.txt asks for one request a second. Later runs read only what is new and finish in seconds. On Agora, a rerun with nothing new costs two 304 responses.
 
 `docker compose down -v` stops everything and deletes the database.
+
+## Dashboard
+
+| Page | What it shows |
+| --- | --- |
+| **Overview** | Items collected, runs in the last 24 h, sources failing, spend this month, system health, sources needing attention, recent runs |
+| **Sources** | Every source with client, schedule, item count and last run; **Add source**; per source: config, checkpoint, last 20 runs, Run now, Edit, Enable/Disable, Delete |
+| **Runs** | Run history (live while active, with Cancel); per run: duration, pages, requests, new/seen items, the error, and the raw responses it stored |
+| **Items** | Everything collected, newest first; search text, filter by site, source and country; cursor paging |
+| **Costs** | Per client and per source: runs, requests, new items, spend, cost per new item, budget; per provider once paid providers exist |
+| **Insights** | Conversations per day by site (7/30/90 days), items by country, items by source, and the country × category sentiment grid |
+
+Spend is $0 for now: Threadit and Agora are free to collect. Paid rows start with PassGate (step 4) and Chirp (step 5).
+
+Charts use a fixed colour per site, validated for colour blindness in light and dark mode, with hover tooltips and a "Show as table" view. mock-web dates its data up to its fixed `MOCK_NOW` (7 Oct 2026), so days after that are empty in the charts.
 
 ## How a run works
 
@@ -58,6 +73,10 @@ Rate limits are a token bucket per site and target host, stored in Postgres (`ra
 | `GET /api/runs?sourceId=&status=&limit=` | Run history, newest first |
 | `GET /api/runs/:id` · `POST /api/runs/:id/cancel` | Run detail, cancel |
 | `GET /api/runs/:id/raw` | Raw responses a run stored (no bodies) |
+| `GET /api/overview` | Everything the overview page shows |
+| `GET /api/items?site=&sourceId=&country=&q=&cursor=&limit=` · `GET /api/items/:id` | Items, newest first with keyset paging (`country=none` for items without one); one item with its scores and raw response |
+| `GET /api/costs?days=` | Spend and usage per client, source and provider |
+| `GET /api/insights/volume` · `/countries` · `/sources` · `/sentiment` (all `?days=`) | Report data for the Insights page |
 
 Errors are always `{ "error": "<code>", "field"?: "...", "message"?: "..." }`.
 
@@ -102,6 +121,7 @@ The integration tests use a separate `listening_post_test` database, which they 
 | --- | --- |
 | 2 · Threadit | A full run stores every post and comment exactly once; a second run adds nothing; 10 requests a minute finishes with zero 429s; a 2-second token lifetime is refreshed during the run |
 | 3 · Agora | HTML and JSON parsers produce identical items (over 300 posts compared); a rerun with nothing new gets mostly 304s; at most 1 request a second and no hits on `/agora/admin/` |
+| API | Validation per site, CRUD, run and cancel, cursor paging without repeats, filters (with a literal `%`), costs, insights and the sentiment grid |
 
 They also cover retries under 30% server errors, layout-change detection in each format, an unknown community, incremental runs after new posts, prompt cancellation, and a retried job being a no-op. The Threadit rate-limit test waits about a minute by design.
 

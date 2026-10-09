@@ -38,6 +38,8 @@ export interface HttpClientOptions {
   log: Logger;
   /** Waits for a rate-limit token before every attempt, retries included. */
   acquire?: (url: string) => Promise<void>;
+  /** Called once per attempt actually sent, for request accounting. */
+  onAttempt?: (url: string) => void;
   signal?: AbortSignal;
   /** Retries for transient failures (5xx, network errors, timeouts). */
   maxRetries?: number;
@@ -57,7 +59,7 @@ export interface HttpClientOptions {
  * and Retry-After handling for 429. Any other status is returned to the caller to judge.
  */
 export class HttpClient {
-  private readonly o: Required<Omit<HttpClientOptions, 'acquire' | 'signal'>> & Pick<HttpClientOptions, 'acquire' | 'signal'>;
+  private readonly o: Required<Omit<HttpClientOptions, 'acquire' | 'signal' | 'onAttempt'>> & Pick<HttpClientOptions, 'acquire' | 'signal' | 'onAttempt'>;
 
   constructor(opts: HttpClientOptions) {
     this.o = {
@@ -128,6 +130,7 @@ export class HttpClient {
   private async once(req: HttpRequest): Promise<HttpResponse> {
     const timeout = AbortSignal.timeout(req.timeoutMs ?? this.o.defaultTimeoutMs);
     const signal = this.o.signal ? AbortSignal.any([timeout, this.o.signal]) : timeout;
+    this.o.onAttempt?.(req.url);
     const res = await this.o.fetch(req.url, {
       method: req.method ?? 'GET',
       headers: { 'user-agent': this.o.userAgent, ...req.headers },

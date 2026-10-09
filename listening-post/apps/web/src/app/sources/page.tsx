@@ -2,16 +2,21 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { runSourceAction } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
-import { StatusBadge, buttonClass, tableClass, tdClass, thClass, timeAgo } from "@/components/ui";
-import { fetchedNow, listSources } from "@/lib/api";
+import { PageHeader, SiteLabel, StatusBadge, buttonClass, num, primaryButtonClass, tableClass, tdClass, thClass, timeAgo } from "@/components/ui";
+import { fetchedNow, listClients, listSources } from "@/lib/api";
 
 export default function SourcesPage() {
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Sources</h1>
-        <p className="mt-1 text-sm text-zinc-500">What is collected, how often, and how the last run went.</p>
-      </div>
+      <PageHeader
+        title="Sources"
+        description="What is collected, for which client, how often, and how the last run went."
+        actions={
+          <Link href="/sources/new" className={primaryButtonClass}>
+            Add source
+          </Link>
+        }
+      />
       <Suspense fallback={<p className="text-sm text-zinc-500">Loading sources…</p>}>
         <SourcesTable />
       </Suspense>
@@ -20,9 +25,10 @@ export default function SourcesPage() {
 }
 
 async function SourcesTable() {
-  const { data: sources, now } = await fetchedNow(listSources());
+  const [{ data: sources, now }, clients] = await Promise.all([fetchedNow(listSources()), listClients()]);
   if (sources.length === 0) return <p className="text-sm text-zinc-500">No sources yet.</p>;
   const active = sources.some((s) => s.lastRun && (s.lastRun.status === "queued" || s.lastRun.status === "running"));
+  const clientName = new Map(clients.map((c) => [c.id, c.name]));
 
   return (
     <>
@@ -31,6 +37,7 @@ async function SourcesTable() {
         <thead className="border-b border-zinc-200 dark:border-zinc-800">
           <tr>
             <th className={thClass}>Source</th>
+            <th className={thClass}>Client</th>
             <th className={thClass}>Schedule</th>
             <th className={`${thClass} text-right`}>Items</th>
             <th className={thClass}>Last run</th>
@@ -41,19 +48,26 @@ async function SourcesTable() {
         </thead>
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {sources.map((s) => (
-            <tr key={s.id}>
+            <tr key={s.id} className={s.enabled ? "" : "opacity-60"}>
               <td className={tdClass}>
-                <div className="font-medium">{s.name}</div>
+                <Link href={`/sources/${s.id}`} className="font-medium hover:underline">
+                  {s.name}
+                </Link>
                 <div className="text-xs text-zinc-500">
-                  {s.site} · {s.strategy}
+                  <SiteLabel site={s.site} /> · {s.strategy}
                   {!s.enabled && " · disabled"}
                 </div>
               </td>
+              <td className={`${tdClass} text-xs`}>{clientName.get(s.clientId) ?? "–"}</td>
               <td className={`${tdClass} font-mono text-xs`}>{s.schedule ?? "manual"}</td>
-              <td className={`${tdClass} text-right tabular-nums`}>{s.itemCount.toLocaleString("en-GB")}</td>
+              <td className={`${tdClass} text-right tabular-nums`}>
+                <Link href={`/items?sourceId=${s.id}`} className="hover:underline">
+                  {num(s.itemCount)}
+                </Link>
+              </td>
               <td className={tdClass}>
                 {s.lastRun ? (
-                  <Link href={`/runs?sourceId=${s.id}`} className="flex items-center gap-2 hover:underline">
+                  <Link href={`/runs/${s.lastRun.id}`} className="flex items-center gap-2 hover:underline">
                     <StatusBadge status={s.lastRun.status} />
                     <span className="text-xs text-zinc-500">{timeAgo(s.lastRun.createdAt, now)}</span>
                   </Link>

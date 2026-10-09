@@ -30,6 +30,7 @@ export interface RunSummary {
   runId: string;
   status: RunStatus;
   pages: number;
+  requests: number;
   itemsFound: number;
   itemsNew: number;
   errorClass?: string | null;
@@ -68,7 +69,7 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
   if (TERMINAL.includes(run.status)) return summaryOf(run);
 
   const log = deps.log.child({ runId, sourceId: source.id, site: source.site });
-  const counters = { pages: 0, itemsFound: 0, itemsNew: 0 };
+  const counters = { pages: 0, requests: 0, itemsFound: 0, itemsNew: 0 };
   await db
     .update(runs)
     .set({ status: 'running', startedAt: new Date(now()), errorClass: null, errorMessage: null })
@@ -103,6 +104,9 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
       log,
       signal: controller.signal,
       sleep,
+      onAttempt: () => {
+        counters.requests += 1;
+      },
       // One bucket per site per host: several sites can share a host (they do in mock-web), each with its own limit.
       acquire: (url) => deps.limiter.acquire(`${source.site}:${new URL(url).host}`, limit, controller.signal),
       ...deps.http,
@@ -179,7 +183,7 @@ async function finish(
   db: DbOrTx,
   runId: string,
   status: RunStatus,
-  counters: { pages: number; itemsFound: number; itemsNew: number },
+  counters: { pages: number; requests: number; itemsFound: number; itemsNew: number },
   now: () => number,
   error?: { errorClass: NonNullable<typeof runs.$inferInsert.errorClass>; errorMessage: string },
 ): Promise<void> {
@@ -283,6 +287,7 @@ function summaryOf(run: typeof runs.$inferSelect): RunSummary {
     runId: run.id,
     status: run.status,
     pages: run.pages,
+    requests: run.requests,
     itemsFound: run.itemsFound,
     itemsNew: run.itemsNew,
     errorClass: run.errorClass,

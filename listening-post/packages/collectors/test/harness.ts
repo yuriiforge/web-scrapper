@@ -11,6 +11,8 @@ import type { ExecutorDeps } from '../src/run';
 
 const ADMIN_URL = process.env.INTEGRATION_ADMIN_URL ?? 'postgres://lp:lp@localhost:5432/postgres';
 const TEST_DB = 'listening_post_test';
+/** Connection string of the integration-test database. */
+export const TEST_DATABASE_URL = ADMIN_URL.replace(/\/[^/]*$/, `/${TEST_DB}`);
 const ROOT = path.resolve(import.meta.dirname, '../../..');
 const MOCK_WEB = process.env.MOCK_WEB_DIR ?? path.resolve(ROOT, '../mock-web');
 
@@ -25,14 +27,13 @@ export async function freshDatabase(): Promise<DbHandle> {
   await admin.query(`drop database if exists ${TEST_DB} with (force)`);
   await admin.query(`create database ${TEST_DB}`);
   await admin.end();
-  const url = ADMIN_URL.replace(/\/[^/]*$/, `/${TEST_DB}`);
-  await runMigrations(url, path.join(ROOT, 'packages/db/drizzle'));
-  return createDb(url);
+  await runMigrations(TEST_DATABASE_URL, path.join(ROOT, 'packages/db/drizzle'));
+  return createDb(TEST_DATABASE_URL);
 }
 
 export async function truncateAll(handle: DbHandle): Promise<void> {
   await handle.db.execute(
-    sql`truncate items, raw_responses, runs, checkpoints, rate_buckets, sources, clients restart identity cascade`,
+    sql`truncate items, item_scores, raw_responses, runs, checkpoints, rate_buckets, http_cache, costs, sources, clients restart identity cascade`,
   );
 }
 

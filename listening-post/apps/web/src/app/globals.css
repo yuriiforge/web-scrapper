@@ -1,26 +1,50 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme inline {
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+body {
+  font-family: var(--font-sans);
+}
+
+/*
+ * Chart tokens. Colours follow the entity (each site keeps its slot whatever is filtered),
+ * from a palette validated for colour-vision deficiency in both modes. Text never uses a
+ * series colour: values and labels stay in the ink tokens.
+ */
+:root {
+  --viz-surface: #fcfcfb;
+  --viz-ink: #0b0b0b;
+  --viz-ink-2: #52514e;
+  --viz-muted: #898781;
+  --viz-grid: #e1e0d9;
+  --viz-axis: #c3c2b7;
+  --viz-threadit: #2a78d6;
+  --viz-agora: #eb6834;
+  --viz-ratewell: #1baf7a;
+  --viz-chirp: #eda100;
+  --viz-seq: #2a78d6;
+  --viz-pos: #2a78d6;
+  --viz-neg: #e34948;
+  --viz-mid: #f0efec;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --viz-surface: #1a1a19;
+    --viz-ink: #ffffff;
+    --viz-ink-2: #c3c2b7;
+    --viz-muted: #898781;
+    --viz-grid: #2c2c2a;
+    --viz-axis: #383835;
+    --viz-threadit: #3987e5;
+    --viz-agora: #d95926;
+    --viz-ratewell: #199e70;
+    --viz-chirp: #c98500;
+    --viz-seq: #3987e5;
+    --viz-pos: #3987e5;
+    --viz-neg: #e66767;
+    --viz-mid: #383835;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }

@@ -1,7 +1,8 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { ApiError, cancelRun, runSource } from "@/lib/api";
+import { redirect } from "next/navigation";
+import { ApiError, cancelRun, createSource, deleteSource, runSource, updateSource } from "@/lib/api";
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
@@ -23,4 +24,74 @@ export async function cancelRunAction(formData: FormData): Promise<void> {
     if (!(err instanceof ApiError && err.code === "not_cancellable")) throw err;
   }
   refresh();
+}
+
+export async function setSourceEnabledAction(formData: FormData): Promise<void> {
+  const id = String(formData.get("sourceId") ?? "");
+  if (!UUID.test(id)) return;
+  await updateSource(id, { enabled: formData.get("enabled") === "true" });
+  refresh();
+}
+
+export async function deleteSourceAction(formData: FormData): Promise<void> {
+  const id = String(formData.get("sourceId") ?? "");
+  if (!UUID.test(id)) return;
+  await deleteSource(id);
+  redirect("/sources");
+}
+
+export interface SourceFormState {
+  error?: string;
+  field?: string;
+}
+
+const text = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
+const optionalInt = (f: FormData, k: string) => {
+  const v = text(f, k);
+  return v === "" ? undefined : Number(v);
+};
+
+/** Builds the site-specific config from the form; the API validates it. */
+function configFrom(site: string, f: FormData): Record<string, unknown> {
+  if (site === "threadit") {
+    return {
+      community: text(f, "community"),
+      pageSize: optionalInt(f, "pageSize") ?? 100,
+      includeComments: f.get("includeComments") === "on",
+      maxPages: optionalInt(f, "maxPages"),
+      ratePerMinute: optionalInt(f, "ratePerMinute"),
+    };
+  }
+  return {
+    category: text(f, "category") || undefined,
+    format: text(f, "format") || "json",
+    maxTopics: optionalInt(f, "maxTopics"),
+    ratePerMinute: optionalInt(f, "ratePerMinute"),
+  };
+}
+
+/** Creates or updates a source. Returns the API's validation error to show next to the field. */
+export async function saveSourceAction(_prev: SourceFormState, f: FormData): Promise<SourceFormState> {
+  const id = text(f, "id");
+  const site = text(f, "site");
+  const budget = text(f, "budgetUsdMonth");
+  const common = {
+    name: text(f, "name"),
+    schedule: text(f, "schedule") || null,
+    enabled: f.get("enabled") === "on",
+    budgetUsdMonth: budget === "" ? null : Number(budget),
+    config: configFrom(site, f),
+  };
+
+  let savedId: string;
+  try {
+    const saved = id ? await updateSource(id, common) : await createSource({ ...common, clientId: text(f, "clientId"), site });
+    savedId = saved.id;
+  } catch (err) {
+    if (err instanceof ApiError && err.status < 500) {
+      return { error: err.detail ?? (err.code === "conflict" ? "Already exists" : "Invalid value"), field: err.field };
+    }
+    throw err;
+  }
+  redirect(`/sources/${savedId}`);
 }

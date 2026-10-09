@@ -17,6 +17,7 @@ const RUN_COLUMNS = {
   startedAt: runs.startedAt,
   finishedAt: runs.finishedAt,
   pages: runs.pages,
+  requests: runs.requests,
   itemsFound: runs.itemsFound,
   itemsNew: runs.itemsNew,
   errorClass: runs.errorClass,

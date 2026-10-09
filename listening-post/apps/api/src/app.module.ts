@@ -5,6 +5,7 @@ import { ClientsModule } from './clients/clients.module';
 import { DbModule } from './db/db.module';
 import { HealthModule } from './health/health.module';
 import { QueueModule } from './queue/queue.module';
+import { ReportsModule } from './reports.module';
 import { RunsModule } from './runs/runs.module';
 import { SourcesModule } from './sources/sources.module';
 import { API_ENV } from './tokens';
@@ -30,6 +31,7 @@ export class AppModule {
         ClientsModule,
         SourcesModule,
         RunsModule,
+        ReportsModule,
       ],
       providers: [{ provide: API_ENV, useValue: env }],
       exports: [API_ENV],

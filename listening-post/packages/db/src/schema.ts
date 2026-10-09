@@ -92,6 +92,8 @@ export const runs = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     pages: integer('pages').notNull().default(0),
+    /** Every HTTP attempt, including retries, 304s and token requests: the unit providers bill by. */
+    requests: integer('requests').notNull().default(0),
     itemsFound: integer('items_found').notNull().default(0),
     itemsNew: integer('items_new').notNull().default(0),
     errorClass: errorClassEnum('error_class'),
