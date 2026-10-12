@@ -2,7 +2,7 @@
 
 import { refresh } from "next/cache";
 import { redirect } from "next/navigation";
-import { ApiError, cancelRun, createSource, deleteSource, runSource, updateSource } from "@/lib/api";
+import { ApiError, cancelRun, createSource, deleteSource, reparseSource, runEvaluation, runSource, updateSource } from "@/lib/api";
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
@@ -12,6 +12,31 @@ export async function runSourceAction(formData: FormData): Promise<void> {
   if (!UUID.test(id)) return;
   await runSource(id);
   refresh();
+}
+
+/** Re-runs the parser over stored raw responses, with no new requests. */
+export async function reparseSourceAction(formData: FormData): Promise<void> {
+  const id = String(formData.get("sourceId") ?? "");
+  if (!UUID.test(id)) return;
+  await reparseSource(id);
+  refresh();
+}
+
+/** Checks one scorer against ground truth. A method with no scores yet, or truth that cannot be reached, comes back as a message. */
+export async function runEvaluationAction(formData: FormData): Promise<void> {
+  const method = formData.get("method") === "llm" ? "llm" : "rules";
+  const days = String(formData.get("days") ?? "30").replace(/D/g, "") || "30";
+  try {
+    await runEvaluation(method, 500);
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 422 || err.status === 502)) {
+      redirect(`/insights?days=${days}&evalError=${encodeURIComponent(err.detail ?? err.code)}#scoring`);
+    }
+    throw err;
+  }
+  // Same URL apart from the hash, which alone would only scroll: refresh so the new result renders.
+  refresh();
+  redirect(`/insights?days=${days}#scoring`);
 }
 
 export async function cancelRunAction(formData: FormData): Promise<void> {
@@ -59,6 +84,16 @@ function configFrom(site: string, f: FormData): Record<string, unknown> {
       pageSize: optionalInt(f, "pageSize") ?? 100,
       includeComments: f.get("includeComments") === "on",
       maxPages: optionalInt(f, "maxPages"),
+      ratePerMinute: optionalInt(f, "ratePerMinute"),
+    };
+  }
+  if (site === "chirp") {
+    return {
+      query: text(f, "query"),
+      country: text(f, "country") || undefined,
+      maxResults: optionalInt(f, "maxResults"),
+      maxPostsPerRun: optionalInt(f, "maxPostsPerRun"),
+      backfillDays: optionalInt(f, "backfillDays"),
       ratePerMinute: optionalInt(f, "ratePerMinute"),
     };
   }

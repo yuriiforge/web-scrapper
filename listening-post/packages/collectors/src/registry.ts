@@ -1,5 +1,6 @@
 import { SOURCE_CONFIGS, type Site } from '@lp/shared';
 import { AgoraCollector } from './agora/collector';
+import { ChirpCollector } from './chirp/collector';
 import { CollectorError } from './errors';
 import { RatewellCollector } from './ratewell/collector';
 import { ThreaditCollector } from './threadit/collector';
@@ -27,6 +28,11 @@ export function createCollector(source: SourceLike, deps: CollectorDeps): Collec
       const parsed = SOURCE_CONFIGS.ratewell.safeParse(source.config);
       if (!parsed.success) throw new CollectorError('bad_request', `invalid ratewell config: ${parsed.error.issues[0]?.message}`);
       return new RatewellCollector(parsed.data, deps) as Collector;
+    }
+    case 'chirp': {
+      const parsed = SOURCE_CONFIGS.chirp.safeParse(source.config);
+      if (!parsed.success) throw new CollectorError('bad_request', `invalid chirp config: ${parsed.error.issues[0]?.message}`);
+      return new ChirpCollector(parsed.data, deps) as Collector;
     }
     default:
       throw new CollectorError('bad_request', `no collector for site ${source.site} yet`);

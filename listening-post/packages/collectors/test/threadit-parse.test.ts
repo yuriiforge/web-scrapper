@@ -3,7 +3,7 @@ import { normalizeText, textHash, withTitle } from '../src/normalize';
 import { ThreaditCollector } from '../src/threadit/collector';
 
 const collector = new ThreaditCollector(
-  { community: 'gb', pageSize: 100, includeComments: true },
+  { community: 'gb', pageSize: 100, includeComments: true, commentLookbackHours: 72 },
   { baseUrl: 'http://mock-web:4000', threadit: { clientId: 'a', clientSecret: 'b' } },
 );
 const raw = (url: string, body: unknown) => ({ url, status: 200, headers: {}, body: JSON.stringify(body), fetchedAt: new Date() });
@@ -30,6 +30,7 @@ describe('Threadit parse', () => {
         text: 'Thoughts on Ledgerly app? The Ledgerly app is fairly standard.',
         country: 'GB',
         publishedAt: new Date(1791000000 * 1000),
+        meta: { score: 3, numComments: 2 },
       },
     ]);
   });

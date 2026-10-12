@@ -90,3 +90,17 @@ describe('admin', () => {
     await request(app).get('/threadit/c/gb/new').auth(token, BEARER).expect(401);
   });
 });
+
+describe('publishing comments', () => {
+  it('adds comments to recent posts of one community, dated now', async () => {
+    const { app, ctx } = boot();
+    const res = await request(app).post('/_admin/publish').send({ site: 'threadit', kind: 'comments', count: 5, community: 'gb' }).expect(201);
+    expect(res.body.ids).toHaveLength(5);
+    for (const id of res.body.ids) {
+      const post = ctx.corpus.threadit.posts.find((p) => p.comments.some((c) => c.id === id))!;
+      expect(post.community).toBe('gb');
+      expect(post.comments.at(-1)!.created).toBeGreaterThanOrEqual(post.created);
+      expect(ctx.corpus.truth.get(id)).toMatchObject({ site: 'threadit' });
+    }
+  });
+});

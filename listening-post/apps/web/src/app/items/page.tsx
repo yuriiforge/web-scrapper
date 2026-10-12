@@ -44,6 +44,7 @@ async function ItemsBody({ searchParams }: { searchParams: PageProps<"/items">["
           <option value="threadit">Threadit</option>
           <option value="agora">Agora</option>
           <option value="ratewell">Ratewell</option>
+          <option value="chirp">Chirp</option>
         </select>
         <label className="sr-only" htmlFor="sourceId">
           Source

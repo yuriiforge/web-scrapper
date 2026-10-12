@@ -1,11 +1,13 @@
 import { hostname } from 'node:os';
-import { PgRateLimiter, createRun, executeRun, type ExecutorDeps } from '@lp/collectors';
+import { createClaudeClassifier, runAnalysis, type AnalysisDeps } from '@lp/analysis';
+import { PgRateLimiter, createRun, executeReparse, executeRun, type ExecutorDeps } from '@lp/collectors';
 import { beat, createDb } from '@lp/db';
 import { QUEUES, startBoss, type CollectJob } from '@lp/queue';
 import { loadEnv, workerEnv } from '@lp/shared';
 import { pino } from 'pino';
 import { startHeartbeat } from './heartbeat';
 import { deleteExpiredRaw, failStaleRuns, syncSchedules } from './maintenance';
+import { runMonitor, type MonitorDeps } from './monitor';
 
 const env = loadEnv(workerEnv);
 const workerId = `${hostname()}-${process.pid}`;
@@ -31,6 +33,7 @@ const executor: ExecutorDeps = {
     threadit: { clientId: env.THREADIT_CLIENT_ID, clientSecret: env.THREADIT_CLIENT_SECRET },
     passgate: { baseUrl: env.PASSGATE_URL ?? env.SOURCE_BASE_URL, key: env.PASSGATE_KEY, creditUsd: env.PASSGATE_CREDIT_USD },
     browser: { headless: env.BROWSER_HEADLESS, minuteUsd: env.BROWSER_MINUTE_USD },
+    chirp: { key: env.CHIRP_KEY, postUsd: env.CHIRP_POST_USD },
   },
 };
 
@@ -41,8 +44,48 @@ await boss.work<CollectJob>(QUEUES.collect, { localConcurrency: env.WORKER_CONCU
     // Scheduled jobs carry only the source; manual ones arrive with the run the API created.
     const runId = job.data.runId ?? (await createRun(db, job.data.sourceId, job.data.trigger));
     // A failed run is recorded on the run row; the job itself completes, so pg-boss does not retry it.
-    await executeRun(executor, runId, job.signal);
+    if (job.data.trigger === 'reparse') await executeReparse(executor, runId);
+    else await executeRun(executor, runId, job.signal);
   }
+});
+
+const monitor: MonitorDeps = {
+  db,
+  log: log.child({ job: 'monitor' }),
+  cronIntervalMs: (cron) => {
+    try {
+      const [a, b] = boss.previewSchedule(cron, { count: 2, tz: 'UTC' });
+      return a && b ? b.getTime() - a.getTime() : null;
+    } catch {
+      return null;
+    }
+  },
+  hosts: [env.SOURCE_BASE_URL],
+  webhookUrl: env.ALERT_WEBHOOK_URL,
+};
+// Every minute, as a job on an exclusive queue: one pass at a time, whatever the number of workers.
+await boss.schedule(QUEUES.monitor, '* * * * *', {}, { key: 'monitor', tz: 'UTC' });
+await boss.work(QUEUES.monitor, async () => {
+  await runMonitor(monitor);
+});
+
+const analysis: AnalysisDeps = {
+  db,
+  log: log.child({ job: 'analyze' }),
+  llm: env.ANTHROPIC_API_KEY
+    ? {
+        classifier: createClaudeClassifier({ model: env.LLM_MODEL }),
+        maxItemsPerPass: env.LLM_MAX_ITEMS_PER_PASS,
+        batchSize: env.LLM_BATCH_SIZE,
+        monthlyUsd: env.LLM_MONTHLY_USD,
+        inputUsdPerMTok: env.LLM_INPUT_USD_PER_MTOK,
+        outputUsdPerMTok: env.LLM_OUTPUT_USD_PER_MTOK,
+      }
+    : undefined,
+};
+await boss.schedule(QUEUES.analyze, '* * * * *', {}, { key: 'analyze', tz: 'UTC' });
+await boss.work(QUEUES.analyze, async () => {
+  await runAnalysis(analysis);
 });
 
 const every = (ms: number, task: () => Promise<void>, name: string) => {
@@ -56,7 +99,10 @@ const timers = [
   every(60 * 60_000, () => deleteExpiredRaw(db, log), 'raw retention'),
 ];
 
-log.info({ sourceBaseUrl: env.SOURCE_BASE_URL, concurrency: env.WORKER_CONCURRENCY }, 'worker started');
+log.info(
+  { sourceBaseUrl: env.SOURCE_BASE_URL, concurrency: env.WORKER_CONCURRENCY, llmModel: analysis.llm ? env.LLM_MODEL : null },
+  'worker started',
+);
 
 const shutdown = (signal: string) => {
   log.info({ signal }, 'shutting down');

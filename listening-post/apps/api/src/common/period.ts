@@ -14,9 +14,13 @@ export interface Period {
   to: Date;
 }
 
+/** An open-ended period runs this far past now, so rows written a moment ago count even if the database clock is slightly ahead. */
+const OPEN_END_SLACK_MS = 60_000;
+
 export function resolvePeriod(q: PeriodQuery, defaultDays = 30, now = new Date()): Period {
-  const to = q.to ? new Date(q.to) : now;
-  const from = q.from ? new Date(q.from) : new Date(to.getTime() - (q.days ?? defaultDays) * 86_400_000);
+  const end = q.to ? new Date(q.to) : now;
+  const to = q.to ? end : new Date(now.getTime() + OPEN_END_SLACK_MS);
+  const from = q.from ? new Date(q.from) : new Date(end.getTime() - (q.days ?? defaultDays) * 86_400_000);
   if (from >= to) throw new BadRequestException({ error: 'bad_request', field: 'from', message: 'from must be before to' });
   return { from, to };
 }

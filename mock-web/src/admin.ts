@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Ctx } from './context.js';
 import { HttpError, badRequest, qs } from './lib/http.js';
 import { itemCounts } from './seed/generate.js';
-import { publish } from './seed/publish.js';
+import { publish, publishComments } from './seed/publish.js';
 import { TOPICS, type Topic } from './seed/types.js';
 import { SITES, type ChaosSettings, type SiteName } from './state.js';
 
@@ -28,6 +28,10 @@ const PublishBody = z.object({
   site: z.enum(['threadit', 'agora', 'ratewell', 'chirp']),
   count: z.number().int().min(1).max(1000),
   topic: topicSchema.optional(),
+  /** Threadit only: add comments to recent posts instead of new posts. */
+  kind: z.enum(['posts', 'comments']).default('posts'),
+  /** Threadit comments only: limit to posts in this community. */
+  community: z.string().optional(),
 });
 
 const CreditsBody = z.object({
@@ -81,7 +85,10 @@ export function adminRouter(ctx: Ctx): Router {
 
   r.post('/publish', (req, res) => {
     const body = parse(PublishBody, req.body);
-    const ids = publish(ctx.corpus, ctx.state.publishRng, body.site, body.count, body.topic, ctx.corpusNow());
+    const ids =
+      body.site === 'threadit' && body.kind === 'comments'
+        ? publishComments(ctx.corpus, ctx.state.publishRng, body.count, body.community, ctx.corpusNow())
+        : publish(ctx.corpus, ctx.state.publishRng, body.site, body.count, body.topic, ctx.corpusNow());
     res.status(201).json({ site: body.site, ids });
   });
 

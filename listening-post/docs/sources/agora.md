@@ -30,9 +30,17 @@ In practice the same checks apply to any site: look for `.json` or `?format=json
 
 ## Incremental runs
 
-Listings are sorted by latest activity. The checkpoint stores the newest `last_posted_at` seen. The next run walks the listing and stops at the first topic that is not newer, then fetches only topics with new posts (all their pages, since every page carries the post count).
+Listings are sorted by latest activity. The checkpoint stores a watermark: every topic last active at or before it is stored. The next run walks the listing, stops at the first topic that isn't newer, and fetches only topics with new posts (all their pages, since every page carries the post count).
 
-`maxTopics` caps one run. A topic beyond the cap is collected only once it gets new activity, so use the cap for testing and for limiting a first crawl, not for routine runs.
+**First crawl of every category:** the collector reads `sitemap.xml` instead. One request lists all 800 topics with their last activity, rather than walking about 27 listing pages. A single-category source walks its category listing, because the sitemap doesn't say which category a topic is in.
+
+**`maxTopics` caps one run without losing anything.** A capped run doesn't move the watermark. It records the band of activity it covered (`done: {from, to}`), and the next run:
+
+- fetches topics newer than the band (new activity);
+- skips the band;
+- continues with the backlog below it, until it reaches the watermark.
+
+Once a run finishes without hitting the cap, the watermark moves to the newest activity and the band is cleared. While a backlog remains, the first listing page is not fetched conditionally, because a 304 there would end the run before the backlog.
 
 ## What breaks it
 

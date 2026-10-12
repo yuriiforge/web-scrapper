@@ -74,3 +74,25 @@ describe('retryAfterMs', () => {
 it('CollectorError keeps its class', () => {
   expect(new CollectorError('quota', 'x').errorClass).toBe('quota');
 });
+
+describe('late headers', () => {
+  it('are computed after the rate-limit wait, once per attempt', async () => {
+    const order: string[] = [];
+    let attempt = 0;
+    const seen: (string | null)[] = [];
+    const fetch = (async (_url: string, init: RequestInit) => {
+      seen.push(new Headers(init.headers).get('authorization'));
+      return new Response('', { status: attempt++ === 0 ? 503 : 200 });
+    }) as typeof globalThis.fetch;
+    const client = new HttpClient({
+      log,
+      fetch,
+      sleep: async () => undefined,
+      acquire: async () => void order.push('acquire'),
+    });
+    let n = 0;
+    await client.request({ url: 'http://x/a', lateHeaders: async () => (order.push('headers'), { authorization: `Bearer t${++n}` }) });
+    expect(order).toEqual(['acquire', 'headers', 'acquire', 'headers']);
+    expect(seen).toEqual(['Bearer t1', 'Bearer t2']);
+  });
+});

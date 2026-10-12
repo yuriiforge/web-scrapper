@@ -98,6 +98,7 @@ export class RatewellCollector implements Collector<RatewellState, RatewellCheck
 
     const page = parseAnyReviewPage(raw);
     if (!page) throw new CollectorError('parse', `no reviews in ${raw.url}`, raw.status, [raw]);
+    ctx.listed(page.reviews.length);
     for (const r of page.reviews) if (!this.newest || r.createdAt > this.newest) this.newest = r.createdAt;
     const fresh = page.reviews.filter((r) => !this.since || r.createdAt > this.since);
     const reachedWatermark = fresh.length < page.reviews.length;

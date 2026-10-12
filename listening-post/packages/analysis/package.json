@@ -1,0 +1,18 @@
+{
+  "name": "@lp/analysis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@lp/db": "^0.1.0",
+    "@lp/shared": "^0.1.0",
+    "drizzle-orm": "^0.45.4",
+    "pino": "^10.4.0",
+    "zod": "^4.6.5"
+  }
+}

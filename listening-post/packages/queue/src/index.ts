@@ -4,6 +4,10 @@ import { PgBoss } from 'pg-boss';
 export const QUEUES = {
   /** One job = one collection run of one source. */
   collect: 'collect',
+  /** One job = one monitoring pass over every source; scheduled every minute. */
+  monitor: 'monitor',
+  /** One job = one analysis pass (duplicates, scoring); scheduled every minute. */
+  analyze: 'analyze',
 } as const;
 
 /**
@@ -48,6 +52,14 @@ async function ensureQueues(boss: PgBoss): Promise<void> {
       retryLimit: 1,
       retryDelay: 30,
     });
+  }
+  if (!(await boss.getQueue(QUEUES.monitor))) {
+    // At most one pass queued or running: a slow pass never piles up behind itself.
+    await boss.createQueue(QUEUES.monitor, { policy: 'exclusive', expireInSeconds: 120, retryLimit: 0 });
+  }
+  if (!(await boss.getQueue(QUEUES.analyze))) {
+    // Same: one pass at a time. A first pass over a large backlog can take a while.
+    await boss.createQueue(QUEUES.analyze, { policy: 'exclusive', expireInSeconds: 900, retryLimit: 0 });
   }
 }
 

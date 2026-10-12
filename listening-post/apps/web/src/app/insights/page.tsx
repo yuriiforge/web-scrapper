@@ -2,8 +2,9 @@ import { Suspense } from "react";
 import { BarList } from "@/components/charts/bar-list";
 import { LineChart } from "@/components/charts/line-chart";
 import { SentimentGrid } from "@/components/charts/sentiment-grid";
+import { ScoringPanel } from "@/components/scoring-panel";
 import { Card, PageHeader, PeriodPicker, SITE_COLORS, SITE_LABELS, daysParam, num } from "@/components/ui";
-import { getCountries, getSentiment, getSourceVolume, getVolume } from "@/lib/api";
+import { fetchedNow, getAnalysis, getCountries, getSentiment, getSourceVolume, getVolume, listEvaluations } from "@/lib/api";
 
 export default function InsightsPage({ searchParams }: PageProps<"/insights">) {
   return (
@@ -16,8 +17,15 @@ export default function InsightsPage({ searchParams }: PageProps<"/insights">) {
 }
 
 async function InsightsBody({ searchParams }: { searchParams: PageProps<"/insights">["searchParams"] }) {
-  const days = daysParam((await searchParams).days);
-  const [volume, countries, bySource, sentiment] = await Promise.all([getVolume(days), getCountries(days), getSourceVolume(days), getSentiment(days)]);
+  const params = await searchParams;
+  const days = daysParam(params.days);
+  const evalError = typeof params.evalError === "string" ? params.evalError : undefined;
+  const {
+    data: [volume, countries, bySource, sentiment, analysis, evaluations],
+    now,
+  } = await fetchedNow(
+    Promise.all([getVolume(days), getCountries(days), getSourceVolume(days), getSentiment(days), getAnalysis(), listEvaluations()]),
+  );
   const total = volume.series.reduce((n, s) => n + s.counts.reduce((a, b) => a + b, 0), 0);
   const withCountry = countries.countries.filter((c) => c.country !== null);
   const noCountry = countries.countries.find((c) => c.country === null)?.n ?? 0;
@@ -45,8 +53,7 @@ async function InsightsBody({ searchParams }: { searchParams: PageProps<"/insigh
             bars={withCountry.map((c) => ({ key: c.country!, label: c.country!, value: c.n }))}
           />
           <p className="mt-3 text-xs text-zinc-500">
-            {num(noCountry)} more items have no country: forum posts, comments, and topic communities do not say where the author is. Their
-            country can be inferred later, in step 7.
+            {num(noCountry)} more items have no country: forum posts, comments, and topic communities do not say where the author is.
           </p>
         </Card>
         <Card>
@@ -57,6 +64,8 @@ async function InsightsBody({ searchParams }: { searchParams: PageProps<"/insigh
       <Card title="Sentiment by country and category">
         <SentimentGrid grid={sentiment} />
       </Card>
+
+      <ScoringPanel status={analysis} evaluations={evaluations} days={days} now={now} error={evalError} />
     </>
   );
 }

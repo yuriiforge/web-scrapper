@@ -89,7 +89,18 @@ export interface Item {
   meta: { rating?: number; verified?: boolean } & Record<string, unknown>;
 }
 
+export interface Alert {
+  id: number;
+  sourceId: string | null;
+  sourceName: string | null;
+  kind: string;
+  message: string;
+  openedAt: string;
+  resolvedAt?: string | null;
+}
+
 export interface Overview {
+  alerts: Alert[];
   items: { total: number; last24h: number };
   sources: { total: number; enabled: number; failing: number };
   runs24h: Record<RunStatus, number>;
@@ -110,7 +121,8 @@ export interface CostRow {
 export interface Costs {
   from: string;
   to: string;
-  clients: (CostRow & { clientId: string; clientName: string })[];
+  /** `analysisUsd` is model scoring, already included in `usd`. */
+  clients: (CostRow & { clientId: string; clientName: string; analysisUsd: number })[];
   sources: (CostRow & { id: string; name: string; site: Site; strategy: string; clientId: string; clientName: string; budgetUsdMonth: number | null })[];
   providers: { provider: string; unit: string; units: number; usd: number }[];
 }
@@ -125,8 +137,43 @@ export interface Volume {
 
 export interface SentimentGrid {
   scoredItems: number;
+  /** Of `scoredItems`, how many carry the model's label rather than the rules one. */
+  llmScoredItems: number;
   categories: string[];
   cells: { country: string | null; category: string | null; n: number; positive: number; negative: number; net: number }[];
+}
+
+export type ScoreMethod = "rules" | "llm";
+
+export interface AnalysisStatus {
+  items: number;
+  duplicates: number;
+  crossSiteDuplicates: number;
+  methods: Record<ScoreMethod, { scored: number; unlabelled: number; latestAt: string | null }>;
+  llmSpendMonthUsd: number;
+}
+
+export interface ClassMetrics {
+  precision: number;
+  recall: number;
+  f1: number;
+  support: number;
+}
+
+export interface Evaluation {
+  id: number;
+  method: ScoreMethod;
+  sampleSize: number;
+  categoryAccuracy: number;
+  sentimentAccuracy: number;
+  f1ByClass: {
+    category: Record<string, ClassMetrics>;
+    sentiment: Record<string, ClassMetrics>;
+    macroF1: { category: number; sentiment: number };
+    sentimentConfusion: Record<string, Record<string, number>>;
+    bySite: Partial<Record<Site, { n: number; categoryAccuracy: number; sentimentAccuracy: number }>>;
+  };
+  createdAt: string;
 }
 
 export class ApiError extends Error {
@@ -144,10 +191,15 @@ function apiUrl(path: string): string {
   return new URL(path, process.env.API_URL ?? "http://localhost:3001").toString();
 }
 
+/** The API's bearer token, held only by this server; the browser never sees it. */
+function authHeaders(): Record<string, string> {
+  return process.env.API_TOKEN ? { authorization: `Bearer ${process.env.API_TOKEN}` } : {};
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(apiUrl(path), {
     ...init,
-    headers: init?.body ? { "content-type": "application/json", ...init.headers } : init?.headers,
+    headers: { ...authHeaders(), ...(init?.body ? { "content-type": "application/json" } : {}), ...(init?.headers as Record<string, string> | undefined) },
     signal: AbortSignal.timeout(10_000),
   });
   const body = res.status === 204 ? null : await res.json();
@@ -183,6 +235,9 @@ export const createSource = (body: unknown) => call<SourceDetail>("/api/sources"
 export const updateSource = (id: string, body: unknown) =>
   call<SourceDetail>(`/api/sources/${id}`, { method: "PATCH", body: JSON.stringify(body) });
 export const deleteSource = (id: string) => call<null>(`/api/sources/${id}`, { method: "DELETE" });
+export const reparseSource = (id: string) => call<Run>(`/api/sources/${id}/reparse`, { method: "POST" });
+export const listAlerts = (opts: { sourceId?: string; open?: boolean } = {}) =>
+  call<Alert[]>(`/api/alerts${qs({ sourceId: opts.sourceId, open: opts.open === false ? "false" : undefined })}`);
 export const runSource = (id: string) => call<Run>(`/api/sources/${id}/runs`, { method: "POST" });
 
 export const listRuns = (opts: { sourceId?: string; limit?: number } = {}) =>
@@ -206,6 +261,10 @@ export const getCountries = (days: number) => call<{ countries: { country: strin
 export const getSourceVolume = (days: number) =>
   call<{ sources: { sourceId: string; sourceName: string; site: Site; clientName: string; n: number }[] }>(`/api/insights/sources${qs({ days })}`);
 export const getSentiment = (days: number) => call<SentimentGrid>(`/api/insights/sentiment${qs({ days })}`);
+export const getAnalysis = () => call<AnalysisStatus>("/api/analysis");
+export const listEvaluations = () => call<Evaluation[]>("/api/analysis/evaluations?limit=20");
+export const runEvaluation = (method: ScoreMethod, sampleSize: number) =>
+  call<Evaluation>("/api/analysis/evaluations", { method: "POST", body: JSON.stringify({ method, sampleSize }) });
 
 /** Data plus the moment it was fetched, so pages can show "3 min ago" without reading the clock while rendering. */
 export async function fetchedNow<T>(data: Promise<T>): Promise<{ data: T; now: number }> {

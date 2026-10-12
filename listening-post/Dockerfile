@@ -9,6 +9,7 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
 COPY packages/queue/package.json packages/queue/
 COPY packages/collectors/package.json packages/collectors/
+COPY packages/analysis/package.json packages/analysis/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY apps/web/package.json apps/web/

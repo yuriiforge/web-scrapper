@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { AlertList } from "@/components/alert-list";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { Card, PageHeader, StatTile, StatusBadge, duration, num, timeAgo, usd } from "@/components/ui";
 import { fetchedNow, getHealth, getOverview } from "@/lib/api";
@@ -60,29 +61,9 @@ async function OverviewBody() {
           </ul>
         </Card>
 
-        <Card title="Needs attention">
-          {o.attention.length === 0 ? (
-            <p className="text-sm text-zinc-500">Every enabled source&apos;s last run succeeded.</p>
-          ) : (
-            <ul className="space-y-3 text-sm">
-              {o.attention.map((a) => (
-                <li key={a.sourceId}>
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={a.status} />
-                    <Link href={`/sources/${a.sourceId}`} className="font-medium hover:underline">
-                      {a.sourceName}
-                    </Link>
-                    <span className="text-xs text-zinc-500">{timeAgo(a.createdAt, now)}</span>
-                  </div>
-                  {a.errorClass && (
-                    <Link href={`/runs/${a.runId}`} className="mt-1 block text-xs text-red-700 hover:underline dark:text-red-400">
-                      {a.errorClass}: {a.errorMessage?.slice(0, 140)}
-                    </Link>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+        <Card title={`Open alerts${o.alerts.length ? ` (${o.alerts.length})` : ""}`}>
+          <AlertList alerts={o.alerts} now={now} />
+          <p className="mt-3 text-xs text-zinc-500">Checked every minute; an alert closes by itself when its cause goes away.</p>
         </Card>
       </div>
 

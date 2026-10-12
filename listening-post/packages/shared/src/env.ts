@@ -9,6 +9,10 @@ export const baseEnv = z.object({
 
 export const apiEnv = baseEnv.extend({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3001),
+  /** Bearer token every /api request must carry. Unset turns the check off (local development only). */
+  API_TOKEN: z.string().min(16, 'at least 16 characters').optional(),
+  /** Ground-truth labels for evaluating the scorers (mock-web's admin endpoint). */
+  TRUTH_URL: z.url().default('http://localhost:4000/_admin/truth'),
 });
 
 export const workerEnv = baseEnv.extend({
@@ -30,6 +34,22 @@ export const workerEnv = baseEnv.extend({
   PASSGATE_CREDIT_USD: z.coerce.number().nonnegative().default(0.002),
   /** Price of one minute of browser time in USD (compute for a hosted browser). */
   BROWSER_MINUTE_USD: z.coerce.number().nonnegative().default(0.01),
+  CHIRP_KEY: z.string().min(1).default('chirp-dev-key'),
+  /** Price of one Chirp credit (one post returned) in USD. */
+  CHIRP_POST_USD: z.coerce.number().nonnegative().default(0.0005),
+  /** Each alert opened or resolved is POSTed here as JSON, when set (e.g. a Slack incoming webhook relay). */
+  ALERT_WEBHOOK_URL: z.url().optional(),
+  /** Turns on the Claude scorer. Unset: only the free rules scorer runs. */
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  LLM_MODEL: z.string().min(1).default('claude-opus-5-5'),
+  /** Items sent to the model per analysis pass (one pass a minute), newest first. */
+  LLM_MAX_ITEMS_PER_PASS: z.coerce.number().int().min(1).default(100),
+  LLM_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(25),
+  /** Model spend cap per calendar month (UTC), all clients together. */
+  LLM_MONTHLY_USD: z.coerce.number().nonnegative().default(5),
+  /** Model prices per million tokens, for the cost ledger; defaults are Claude Opus 5.5's. */
+  LLM_INPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(4),
+  LLM_OUTPUT_USD_PER_MTOK: z.coerce.number().nonnegative().default(20),
   BROWSER_HEADLESS: z
     .enum(['true', 'false'])
     .default('true')

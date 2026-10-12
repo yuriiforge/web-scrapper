@@ -102,6 +102,17 @@ export class SourcesService {
     return run!;
   }
 
+  /**
+   * Queues a re-parse: the worker re-runs the parser over the source's stored raw responses, with
+   * no new requests. For after a parser fix.
+   */
+  async reparse(id: string) {
+    await this.get(id);
+    const [run] = await this.db.insert(runs).values({ sourceId: id, trigger: 'reparse' }).returning();
+    await sendCollect(this.boss, { sourceId: id, runId: run!.id, trigger: 'reparse' });
+    return run!;
+  }
+
   /** Counts per run status for one source, for the source detail page. */
   async runStats(id: string) {
     return this.db

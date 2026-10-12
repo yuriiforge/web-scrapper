@@ -39,6 +39,15 @@ const ratewell = (company: string, schedule: string | null, budgetUsdMonth?: num
   budgetUsdMonth,
 });
 
+const chirp = (query: string, country: string, schedule: string | null, budgetUsdMonth: number): DemoSource => ({
+  name: `Chirp · "${query}" (${country})`,
+  site: 'chirp',
+  strategy: 'api',
+  schedule,
+  config: { query, country },
+  budgetUsdMonth,
+});
+
 const DEMO: { client: string; sources: DemoSource[] }[] = [
   {
     client: 'Northwind Outdoors',
@@ -47,6 +56,7 @@ const DEMO: { client: string; sources: DemoSource[] }[] = [
       threadit('electric_cars', '*/30 * * * *'),
       agora('meal-kits', 'json', '*/20 * * * *'),
       ratewell('voltra-motors', '0 */6 * * *'),
+      chirp('delivery', 'GB', '5 * * * *', 2),
     ],
   },
   {
@@ -57,6 +67,7 @@ const DEMO: { client: string; sources: DemoSource[] }[] = [
       agora('online-banks', 'html', '0 * * * *'),
       // A budget, so escalation to the paid unblocker is capped at $1 a month.
       ratewell('ledgerly', '0 */6 * * *', 1),
+      chirp('bank', 'PL', '35 * * * *', 1),
     ],
   },
 ];

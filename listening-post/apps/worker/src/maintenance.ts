@@ -1,6 +1,6 @@
 import { rawResponses, runs, sources, type Db } from '@lp/db';
 import { QUEUES, RUN_TIMEOUT_SECONDS, type CollectJob, type PgBoss } from '@lp/queue';
-import { and, eq, inArray, isNotNull, lt } from 'drizzle-orm';
+import { and, eq, isNotNull, lt, sql } from 'drizzle-orm';
 import type { Logger } from 'pino';
 
 /**
@@ -35,14 +35,40 @@ export async function syncSchedules(db: Db, boss: PgBoss, log: Logger): Promise<
 }
 
 /** Runs left `running` by a worker that died are marked failed, so they never look active forever. */
+/**
+ * Fails runs that can never finish:
+ * - `running` for longer than the run timeout since it started: its worker died mid-run;
+ * - `queued` with no job left in the queue: the job was lost. A queued run whose job still waits
+ *   (behind a long run of the same source) is left alone, however long it has waited.
+ */
 export async function failStaleRuns(db: Db, log: Logger): Promise<void> {
-  const cutoff = new Date(Date.now() - (RUN_TIMEOUT_SECONDS + 60) * 1000);
-  const stale = await db
+  const runningCutoff = new Date(Date.now() - (RUN_TIMEOUT_SECONDS + 60) * 1000);
+  const died = await db
     .update(runs)
     .set({ status: 'failed', errorClass: 'transient', errorMessage: 'worker stopped during the run', finishedAt: new Date() })
-    .where(and(inArray(runs.status, ['running', 'queued']), lt(runs.createdAt, cutoff)))
+    .where(and(eq(runs.status, 'running'), lt(runs.startedAt, runningCutoff)))
     .returning({ id: runs.id });
-  if (stale.length > 0) log.warn({ count: stale.length }, 'marked stale runs as failed');
+
+  // Grace period, so a run created a moment before its job is sent is not caught in between.
+  const queuedCutoff = new Date(Date.now() - 10 * 60_000);
+  const lost = await db
+    .update(runs)
+    .set({ status: 'failed', errorClass: 'transient', errorMessage: 'its queue job was lost', finishedAt: new Date() })
+    .where(
+      and(
+        eq(runs.status, 'queued'),
+        lt(runs.createdAt, queuedCutoff),
+        sql`not exists (
+          select 1 from pgboss.job j
+          where j.name = ${QUEUES.collect}
+            and j.data ->> 'runId' = ${runs.id}::text
+            and j.state in ('created', 'retry', 'active')
+        )`,
+      ),
+    )
+    .returning({ id: runs.id });
+
+  if (died.length + lost.length > 0) log.warn({ died: died.length, lost: lost.length }, 'marked stale runs as failed');
 }
 
 /** Deletes raw responses past their retention date. Items keep a null raw_response_id. */

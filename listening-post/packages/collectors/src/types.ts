@@ -39,6 +39,10 @@ export interface RunContext {
   charge: (charge: Charge) => Promise<void>;
   /** What is left of the source's monthly budget in USD, or null when it has none. Check before paid calls. */
   budgetLeftUsd: () => Promise<number | null>;
+  /** Reports entries seen in a listing (posts, topics, reviews), for the monitor's empty-listing and volume checks. */
+  listed: (count: number) => void;
+  /** How many items this site already has per value of a meta field, e.g. stored comments per postId. */
+  storedCounts: (metaKey: string, values: string[]) => Promise<Map<string, number>>;
 }
 
 /** What one fetchPage call produced. */
@@ -68,6 +72,11 @@ export interface Collector<State = unknown, Checkpoint = unknown> {
   parse(raw: RawResponse): ParsedItem[];
   /** Checkpoint to save after a successful run. */
   checkpoint(): Checkpoint | null;
+  /**
+   * Save the checkpoint when a run ends as partial (out of credits or budget), not only on success.
+   * For collectors whose checkpoint records exactly what was paid for, so the next run does not pay again.
+   */
+  readonly saveCheckpointOnPartial?: boolean;
   /** Releases what the run held open (a browser, for example). Called once, success or not. */
   close?(ctx: RunContext): Promise<void>;
 }
@@ -76,6 +85,7 @@ export interface CollectorDeps {
   baseUrl: string;
   threadit: { clientId: string; clientSecret: string };
   passgate?: { baseUrl: string; key: string; creditUsd: number };
+  chirp?: { key: string; postUsd: number };
   /** `hideWebdriver: false` exists only to prove in tests that hiding it is what gets past the check. */
   browser?: { minuteUsd: number; headless: boolean; hideWebdriver?: boolean };
 }

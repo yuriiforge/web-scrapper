@@ -1,5 +1,7 @@
 import { type DynamicModule, Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { ApiTokenGuard } from './common/api-token.guard';
 import type { ApiEnv } from './config';
 import { ClientsModule } from './clients/clients.module';
 import { DbModule } from './db/db.module';
@@ -33,7 +35,7 @@ export class AppModule {
         RunsModule,
         ReportsModule,
       ],
-      providers: [{ provide: API_ENV, useValue: env }],
+      providers: [{ provide: API_ENV, useValue: env }, { provide: APP_GUARD, useClass: ApiTokenGuard }],
       exports: [API_ENV],
     };
   }

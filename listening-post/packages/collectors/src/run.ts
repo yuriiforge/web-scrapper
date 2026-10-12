@@ -1,7 +1,7 @@
 import { gzipSync } from 'node:zlib';
 import { checkpoints, costs, httpCache, items, rawResponses, runs, sources, type Db } from '@lp/db';
 import type { RunStatus, RunTrigger, Strategy } from '@lp/shared';
-import { and, desc, eq, gte, ne, sql, sum } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, ne, sql, sum } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { CollectorError, errorClassOf } from './errors';
 import { HttpClient, sleep as defaultSleep, type HttpClientOptions, type Sleep } from './http';
@@ -33,6 +33,7 @@ export interface RunSummary {
   requests: number;
   itemsFound: number;
   itemsNew: number;
+  listed?: number | null;
   errorClass?: string | null;
   errorMessage?: string | null;
 }
@@ -69,7 +70,13 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
   if (TERMINAL.includes(run.status)) return summaryOf(run);
 
   const log = deps.log.child({ runId, sourceId: source.id, site: source.site });
-  const counters = { pages: 0, requests: 0, itemsFound: 0, itemsNew: 0 };
+  const counters: { pages: number; requests: number; itemsFound: number; itemsNew: number; listed: number | null } = {
+    pages: 0,
+    requests: 0,
+    itemsFound: 0,
+    itemsNew: 0,
+    listed: null,
+  };
   await db
     .update(runs)
     .set({ status: 'running', startedAt: new Date(now()), errorClass: null, errorMessage: null })
@@ -121,6 +128,9 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
       signal: controller.signal,
       sleep,
       now,
+      listed: (n) => {
+        counters.listed = (counters.listed ?? 0) + n;
+      },
       etag: async (url) => (await db.select({ etag: httpCache.etag }).from(httpCache).where(eq(httpCache.url, url)))[0]?.etag,
       charge: async (c) => {
         await db.insert(costs).values({ runId, clientId: source.clientId, sourceId: source.id, ...c });
@@ -133,6 +143,19 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
           .from(costs)
           .where(and(eq(costs.sourceId, source.id), gte(costs.createdAt, monthStartUtc(now()))));
         return source.budgetUsdMonth - (spent?.usd ?? 0);
+      },
+      storedCounts: async (metaKey, values) => {
+        if (values.length === 0) return new Map();
+        // Inlined, not a parameter: SELECT and GROUP BY must be the same expression, and two
+        // parameters ($1, $2) are not. The key comes from collector code, and is checked anyway.
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(metaKey)) throw new Error(`invalid meta key ${metaKey}`);
+        const key = sql`${items.meta} ->> ${sql.raw(`'${metaKey}'`)}`;
+        const rows = await db
+          .select({ value: sql<string>`${key}`, n: count() })
+          .from(items)
+          .where(and(eq(items.site, source.site), inArray(sql`${key}`, values)))
+          .groupBy(key);
+        return new Map(rows.map((r) => [r.value, r.n]));
       },
     };
     /** ETags of responses parsed this run; saved only if the run succeeds. */
@@ -183,6 +206,9 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
       const expiresAt = new Date(now() + deps.rawRetentionDays * 86_400_000);
       for (const raw of err.responses) if (!saved.has(raw)) await saveRaw(db, runId, raw, expiresAt).catch(() => undefined);
     }
+    if (status === 'partial' && collector?.saveCheckpointOnPartial) {
+      await saveCheckpoint(db, source.id, collector).catch((e: unknown) => log.error({ err: e }, 'checkpoint save failed'));
+    }
     await finish(db, runId, status, counters, now, { errorClass, errorMessage }, strategyNow());
     return { runId, status, ...counters, errorClass, errorMessage };
   } finally {
@@ -203,7 +229,7 @@ async function finish(
   db: DbOrTx,
   runId: string,
   status: RunStatus,
-  counters: { pages: number; requests: number; itemsFound: number; itemsNew: number },
+  counters: { pages: number; requests: number; itemsFound: number; itemsNew: number; listed?: number | null },
   now: () => number,
   error?: { errorClass: NonNullable<typeof runs.$inferInsert.errorClass>; errorMessage: string },
   strategy?: Strategy,
@@ -268,7 +294,7 @@ async function saveRaw(db: Db, runId: string, raw: RawResponse, expiresAt: Date)
 }
 
 /** Inserts or refreshes items; returns how many were seen and how many were new. */
-async function upsertItems(
+export async function upsertItems(
   db: Db,
   source: { id: string; site: typeof sources.$inferSelect.site },
   rawResponseId: number,
@@ -324,6 +350,7 @@ function summaryOf(run: typeof runs.$inferSelect): RunSummary {
     status: run.status,
     pages: run.pages,
     requests: run.requests,
+    listed: run.listed,
     itemsFound: run.itemsFound,
     itemsNew: run.itemsNew,
     errorClass: run.errorClass,

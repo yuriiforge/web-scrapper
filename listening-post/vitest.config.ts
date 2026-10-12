@@ -15,6 +15,6 @@ export default defineConfig({
   ],
   test: {
     include: ['apps/*/test/**/*.test.ts', 'packages/*/test/**/*.test.ts'],
-    exclude: ['**/node_modules/**', 'apps/web/**', '**/*.int.test.ts'],
+    exclude: ['**/node_modules/**', 'apps/web/.next/**', '**/*.int.test.ts'],
   },
 });

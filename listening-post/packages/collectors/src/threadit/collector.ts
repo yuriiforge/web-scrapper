@@ -58,21 +58,34 @@ export class ThreaditCollector implements Collector<ThreaditState, ThreaditCheck
     const res = await this.get(ctx, url);
     const page = this.decode(res, listing(post));
     const posts = page.data.children.map((c) => c.data);
+    ctx.listed(posts.length);
 
-    // Listings are newest first: once a post is not newer than the checkpoint, nothing after it is.
+    // Listings are newest first: once a post is not newer than the checkpoint, nothing after it is new.
     const fresh = posts.filter((p) => isNewer(p, this.since));
     for (const p of fresh) if (isNewer(p, this.newest)) this.newest = { createdUtc: p.created_utc, id: p.id };
 
+    // Older posts still get comments. Within the lookback window (counted back from the newest post
+    // already stored), a post whose comment count grew gets its comments fetched again.
+    const lookbackFrom = this.lookbackFrom();
+    const recheck =
+      includeComments && lookbackFrom !== null
+        ? posts.filter((p) => !isNewer(p, this.since) && p.created_utc >= lookbackFrom && p.num_comments > 0)
+        : [];
+    const stored = await ctx.storedCounts('postId', recheck.map((p) => p.id));
+    const grown = recheck.filter((p) => (stored.get(p.id) ?? 0) < p.num_comments);
+
     const responses: RawResponse[] = [res];
     if (includeComments) {
-      for (const p of fresh) if (p.num_comments > 0) responses.push(...(await this.fetchComments(ctx, p.id)));
+      for (const p of [...fresh.filter((p) => p.num_comments > 0), ...grown]) responses.push(...(await this.fetchComments(ctx, p.id)));
     }
 
     const pageNo = state.page + 1;
-    const reachedCheckpoint = fresh.length < posts.length;
+    const oldest = posts.at(-1);
+    const moreToCheck =
+      fresh.length === posts.length || (lookbackFrom !== null && includeComments && oldest !== undefined && oldest.created_utc >= lookbackFrom);
     const hitMaxPages = maxPages !== undefined && pageNo >= maxPages;
-    const next = page.data.after && !reachedCheckpoint && !hitMaxPages ? { after: page.data.after, page: pageNo } : null;
-    ctx.log.debug({ page: pageNo, posts: posts.length, fresh: fresh.length, done: next === null }, 'threadit page');
+    const next = page.data.after && moreToCheck && !hitMaxPages ? { after: page.data.after, page: pageNo } : null;
+    ctx.log.debug({ page: pageNo, posts: posts.length, fresh: fresh.length, commentsGrew: grown.length, done: next === null }, 'threadit page');
     return { responses, next };
   }
 
@@ -87,6 +100,7 @@ export class ThreaditCollector implements Collector<ThreaditState, ThreaditCheck
         text: withTitle(p.title, p.selftext),
         country,
         publishedAt: new Date(p.created_utc * 1000),
+        meta: { score: p.score, numComments: p.num_comments },
       }));
     }
     if (COMMENTS_URL.test(raw.url)) {
@@ -97,9 +111,18 @@ export class ThreaditCollector implements Collector<ThreaditState, ThreaditCheck
         text: c.body,
         country: null,
         publishedAt: new Date(c.created_utc * 1000),
+        // Lets the next run count stored comments per post and notice new ones.
+        meta: { postId: c.post_id, score: c.score },
       }));
     }
     throw new CollectorError('parse', `no Threadit parser for ${raw.url}`);
+  }
+
+  /** Start of the comment lookback window in epoch seconds, or null on a first run or when disabled. */
+  private lookbackFrom(): number | null {
+    const hours = this.config.commentLookbackHours;
+    if (!this.since || hours === 0) return null;
+    return this.since.createdUtc - hours * 3600;
   }
 
   private async fetchComments(ctx: RunContext, postId: string): Promise<RawResponse[]> {
@@ -116,8 +139,12 @@ export class ThreaditCollector implements Collector<ThreaditState, ThreaditCheck
   /** GET with a bearer token. A 401 refreshes the token once; a second 401 fails the run as `auth`. */
   private async get(ctx: RunContext, url: string): Promise<HttpResponse> {
     for (let attempt = 0; ; attempt++) {
-      const token = await this.accessToken(ctx);
-      const res = await ctx.http.request({ url, headers: { authorization: `Bearer ${token}`, accept: 'application/json' } });
+      // The token is attached after the rate-limit wait, so one checked before a long wait never goes out stale.
+      const res = await ctx.http.request({
+        url,
+        headers: { accept: 'application/json' },
+        lateHeaders: async () => ({ authorization: `Bearer ${await this.accessToken(ctx)}` }),
+      });
       if (res.status === 401 && attempt === 0) {
         ctx.log.info({ url }, 'token rejected, refreshing');
         this.token = undefined;
@@ -142,6 +169,9 @@ export class ThreaditCollector implements Collector<ThreaditState, ThreaditCheck
   private async accessToken(ctx: RunContext): Promise<string> {
     if (this.token && ctx.now() < this.token.refreshAt) return this.token.value;
     const { clientId, clientSecret } = this.deps.threadit;
+    // The lifetime counts from when the server issued the token, which is after we asked for it.
+    // Counting from the moment we asked keeps the estimate on the safe side, whatever the latency.
+    const askedAt = ctx.now();
     const res = await ctx.http.request({
       url: this.url('/threadit/api/v1/access_token'),
       method: 'POST',
@@ -156,7 +186,7 @@ export class ThreaditCollector implements Collector<ThreaditState, ThreaditCheck
     const t = this.decode(res, tokenResponse);
     // Refresh early: 30 s before expiry, or halfway through very short lifetimes.
     const margin = Math.min(30_000, (t.expires_in * 1000) / 2);
-    this.token = { value: t.access_token, refreshAt: ctx.now() + t.expires_in * 1000 - margin };
+    this.token = { value: t.access_token, refreshAt: askedAt + t.expires_in * 1000 - margin };
     ctx.log.debug({ expiresIn: t.expires_in }, 'threadit token issued');
     return t.access_token;
   }

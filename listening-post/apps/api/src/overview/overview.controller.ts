@@ -1,7 +1,7 @@
 import { Controller, Get, Inject } from '@nestjs/common';
-import { costs, items, runs, sources, type Db } from '@lp/db';
+import { alerts, costs, items, runs, sources, type Db } from '@lp/db';
 import { RUN_STATUSES, type RunStatus } from '@lp/shared';
-import { count, desc, eq, gte, sql, sum } from 'drizzle-orm';
+import { count, desc, eq, gte, isNull, sql, sum } from 'drizzle-orm';
 import { monthStart } from '../common/period';
 import { DB } from '../tokens';
 
@@ -66,7 +66,15 @@ export class OverviewController {
       .orderBy(desc(runs.createdAt))
       .limit(6);
 
+    const openAlerts = await this.db
+      .select({ id: alerts.id, sourceId: alerts.sourceId, sourceName: sources.name, kind: alerts.kind, message: alerts.message, openedAt: alerts.openedAt })
+      .from(alerts)
+      .leftJoin(sources, eq(alerts.sourceId, sources.id))
+      .where(isNull(alerts.resolvedAt))
+      .orderBy(desc(alerts.openedAt));
+
     return {
+      alerts: openAlerts,
       items: { total: itemTotals?.total ?? 0, last24h: itemTotals?.last24h ?? 0 },
       sources: {
         total: sourceTotals?.total ?? 0,

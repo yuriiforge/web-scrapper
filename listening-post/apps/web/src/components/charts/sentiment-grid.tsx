@@ -13,8 +13,7 @@ export function SentimentGrid({ grid }: { grid: Grid }) {
       <div className="rounded-md border border-dashed border-zinc-300 p-6 text-sm text-zinc-500 dark:border-zinc-700">
         <p className="font-medium text-zinc-700 dark:text-zinc-300">No sentiment scores yet.</p>
         <p className="mt-1">
-          Items are collected but not yet scored. Scoring (a rules baseline and an LLM, both checked against mock-web&apos;s
-          ground truth) is build step 7. This grid fills in as soon as scores exist.
+          The worker scores new items within a minute of collection; this grid fills in as soon as scores exist in the period.
         </p>
       </div>
     );
@@ -70,7 +69,8 @@ export function SentimentGrid({ grid }: { grid: Grid }) {
       </div>
       <p className="text-xs text-zinc-500">
         Net sentiment in points: % positive minus % negative. Faded cells have fewer than {MIN_RELIABLE} items. {grid.scoredItems.toLocaleString("en-GB")}{" "}
-        scored items.
+        scored items, {grid.llmScoredItems.toLocaleString("en-GB")} of them labelled by Claude and the rest by the rules baseline. Copies of a text count
+        once.
       </p>
     </div>
   );

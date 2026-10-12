@@ -19,7 +19,7 @@ const RATEWELL_STEPS = [
   { value: "browser", label: "Browser (Playwright)", hint: "about $0.01 a minute" },
   { value: "unblocker", label: "PassGate unblocker", hint: "1 credit a page, 5 for a rendered page" },
 ];
-const SITE_NAMES: Record<string, string> = { threadit: "Threadit", agora: "Agora", ratewell: "Ratewell" };
+const SITE_NAMES: Record<string, string> = { threadit: "Threadit", agora: "Agora", ratewell: "Ratewell", chirp: "Chirp" };
 
 /** Create or edit a source. Site-specific config fields change with the site; the API has the final say on validity. */
 export function SourceForm({ clients, source }: { clients: Client[]; source?: SourceDetail }) {
@@ -55,6 +55,7 @@ export function SourceForm({ clients, source }: { clients: Client[]; source?: So
               <option value="threadit">Threadit (official API)</option>
               <option value="agora">Agora (forum)</option>
               <option value="ratewell">Ratewell (reviews, bot-protected)</option>
+              <option value="chirp">Chirp (paid posts API)</option>
             </select>
           </Field>
         </div>
@@ -96,6 +97,34 @@ export function SourceForm({ clients, source }: { clients: Client[]; source?: So
               <input type="checkbox" name="includeComments" defaultChecked={cfg.includeComments !== false} />
               Collect comments of new posts
             </label>
+          </>
+        ) : site === "chirp" ? (
+          <>
+            <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
+              <Field label="Search text" htmlFor="query" hint="Matched as a substring of the post">
+                <input id="query" name="query" className={inputClass} defaultValue={value("query")} required />
+                {errorFor("query")}
+              </Field>
+              <Field label="Country" htmlFor="country" hint="Optional, e.g. GB">
+                <input id="country" name="country" className={inputClass} defaultValue={value("country")} maxLength={2} />
+                {errorFor("country")}
+              </Field>
+            </div>
+            <p className="text-xs text-zinc-500">Every post returned costs a credit (about $0.0005). Set a monthly budget below to cap spend.</p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field label="Posts per request" htmlFor="maxResults" hint="10 to 100">
+                <input id="maxResults" name="maxResults" type="number" min={10} max={100} className={inputClass} defaultValue={value("maxResults") ?? "100"} />
+                {errorFor("maxResults")}
+              </Field>
+              <Field label="Max posts per run" htmlFor="maxPostsPerRun" hint="Default 1,000">
+                <input id="maxPostsPerRun" name="maxPostsPerRun" type="number" min={10} className={inputClass} defaultValue={value("maxPostsPerRun")} />
+                {errorFor("maxPostsPerRun")}
+              </Field>
+              <Field label="First run goes back" htmlFor="backfillDays" hint="Days; default 30">
+                <input id="backfillDays" name="backfillDays" type="number" min={1} max={365} className={inputClass} defaultValue={value("backfillDays")} />
+                {errorFor("backfillDays")}
+              </Field>
+            </div>
           </>
         ) : site === "ratewell" ? (
           <>

@@ -94,6 +94,11 @@ export const runs = pgTable(
     pages: integer('pages').notNull().default(0),
     /** Every HTTP attempt, including retries, 304s and token requests: the unit providers bill by. */
     requests: integer('requests').notNull().default(0),
+    /**
+     * Entries the site listed (posts on listing pages, topics, reviews), or null when no listing came
+     * back (e.g. a 304). An empty listing is a better sign of trouble than no new items.
+     */
+    listed: integer('listed'),
     itemsFound: integer('items_found').notNull().default(0),
     itemsNew: integer('items_new').notNull().default(0),
     errorClass: errorClassEnum('error_class'),

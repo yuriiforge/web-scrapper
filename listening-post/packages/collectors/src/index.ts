@@ -1,5 +1,6 @@
 export * from './agora/collector';
 export * from './agora/parse';
+export * from './chirp/collector';
 export * from './errors';
 export * from './http';
 export * from './limiter';
@@ -7,6 +8,7 @@ export * from './normalize';
 export * from './ratewell/collector';
 export * from './ratewell/parse';
 export * from './registry';
+export * from './reparse';
 export * from './robots';
 export * from './run';
 export * from './threadit/collector';

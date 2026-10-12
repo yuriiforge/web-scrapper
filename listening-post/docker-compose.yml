@@ -58,6 +58,9 @@ services:
     environment:
       <<: *db-env
       API_PORT: 3001
+      # Change these for anything but local use (set them in a .env file next to this one).
+      API_TOKEN: ${API_TOKEN:-dev-api-token-change-me}
+      TRUTH_URL: http://mock-web:4000/_admin/truth
     ports:
       - "3001:3001"
     depends_on:
@@ -84,6 +87,10 @@ services:
       PASSGATE_KEY: pg-dev-key
       PASSGATE_CREDIT_USD: 0.002
       BROWSER_MINUTE_USD: 0.01
+      # Claude scoring runs only when a key is set (in .env next to this file); rules scoring always runs.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-opus-5-5}
+      LLM_MONTHLY_USD: ${LLM_MONTHLY_USD:-5}
     # Chromium needs more shared memory than Docker's 64 MB default.
     shm_size: 512m
     depends_on:
@@ -106,6 +113,9 @@ services:
       target: web
     environment:
       API_URL: http://api:3001
+      API_TOKEN: ${API_TOKEN:-dev-api-token-change-me}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
     ports:
       - "3000:3000"
     depends_on:

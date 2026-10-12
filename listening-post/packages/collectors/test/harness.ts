@@ -33,7 +33,7 @@ export async function freshDatabase(): Promise<DbHandle> {
 
 export async function truncateAll(handle: DbHandle): Promise<void> {
   await handle.db.execute(
-    sql`truncate items, item_scores, raw_responses, runs, checkpoints, rate_buckets, http_cache, costs, sources, clients restart identity cascade`,
+    sql`truncate items, item_scores, eval_results, raw_responses, runs, checkpoints, rate_buckets, http_cache, costs, sources, clients restart identity cascade`,
   );
 }
 
@@ -49,6 +49,7 @@ export interface MockCtx {
     threadit: { posts: { id: string; community: string; comments: { id: string }[] }[] };
     agora: { topics: { id: string; category: string; lastPosted: number; posts: { id: string; text: string }[] }[] };
     ratewell: { companies: { slug: string; reviews: { id: string; rating: number }[] }[] };
+    chirp: { posts: { id: string; text: string; created: number; country: string | null }[] };
   };
   state: { requests: { entries: { path: string; status: number; site: string }[] } };
 }
@@ -102,6 +103,7 @@ export function executorDeps(handle: DbHandle, mock: MockWeb): ExecutorDeps {
       threadit: { clientId: 'dev-id', clientSecret: 'dev-secret' },
       passgate: { baseUrl: mock.url, key: 'pg-dev-key', creditUsd: 0.002 },
       browser: { headless: true, minuteUsd: 0.01 },
+      chirp: { key: 'chirp-dev-key', postUsd: 0.0005 },
     },
     http: { baseDelayMs: 10 },
   };
@@ -111,7 +113,7 @@ export async function createSource(
   handle: DbHandle,
   config: Record<string, unknown>,
   name = 'test source',
-  site: 'threadit' | 'agora' | 'ratewell' = 'threadit',
+  site: 'threadit' | 'agora' | 'ratewell' | 'chirp' = 'threadit',
 ): Promise<string> {
   const [client] = await handle.db
     .insert(clients)
@@ -121,7 +123,7 @@ export async function createSource(
   const [source] = await handle.db
     .insert(sources)
     // Tests run far faster than the real default rate allows, unless a test sets its own.
-    .values({ clientId: client!.id, name, site, strategy: site === 'threadit' ? 'api' : 'html', config: { ratePerMinute: 100_000, ...config } })
+    .values({ clientId: client!.id, name, site, strategy: site === 'threadit' || site === 'chirp' ? 'api' : 'html', config: { ratePerMinute: 100_000, ...config } })
     .returning({ id: sources.id });
   return source!.id;
 }

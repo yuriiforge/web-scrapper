@@ -71,7 +71,10 @@ async function CostsBody({ searchParams }: { searchParams: PageProps<"/costs">["
                 <td className={`${tdClass} text-right`}>{num(r.runs)}</td>
                 <td className={`${tdClass} text-right`}>{num(r.requests)}</td>
                 <td className={`${tdClass} text-right`}>{num(r.itemsNew)}</td>
-                <td className={`${tdClass} text-right`}>{usd(r.usd)}</td>
+                <td className={`${tdClass} text-right`}>
+                  {usd(r.usd)}
+                  {r.analysisUsd > 0 && <div className="text-xs text-zinc-500">incl. {usd(r.analysisUsd, 3)} scoring</div>}
+                </td>
                 <td className={`${tdClass} text-right`}>{perItem(r.usdPerNewItem)}</td>
               </tr>
             ))}

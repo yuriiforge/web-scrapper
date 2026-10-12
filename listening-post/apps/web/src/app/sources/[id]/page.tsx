@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { deleteSourceAction, runSourceAction, setSourceEnabledAction } from "@/app/actions";
+import { deleteSourceAction, reparseSourceAction, runSourceAction, setSourceEnabledAction } from "@/app/actions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { RunsTable } from "@/components/runs-table";
 import { Card, PageHeader, SiteLabel, StatTile, buttonClass, num, primaryButtonClass, timeAgo } from "@/components/ui";
-import { ApiError, fetchedNow, getSource, listClients, listRuns, listSources } from "@/lib/api";
+import { ApiError, fetchedNow, getSource, listAlerts, listClients, listRuns, listSources } from "@/lib/api";
+import { AlertList } from "@/components/alert-list";
 
 export default function SourcePage({ params }: PageProps<"/sources/[id]">) {
   return (
@@ -19,13 +20,13 @@ async function SourceBody({ params }: { params: PageProps<"/sources/[id]">["para
   const { id } = await params;
   let loaded;
   try {
-    loaded = await fetchedNow(Promise.all([getSource(id), listRuns({ sourceId: id, limit: 20 }), listSources(), listClients()]));
+    loaded = await fetchedNow(Promise.all([getSource(id), listRuns({ sourceId: id, limit: 20 }), listSources(), listClients(), listAlerts({ sourceId: id })]));
   } catch (err) {
     if (err instanceof ApiError && (err.status === 404 || err.status === 400)) notFound();
     throw err;
   }
   const {
-    data: [source, runs, all, clients],
+    data: [source, runs, all, clients, openAlerts],
     now,
   } = loaded;
   const summary = all.find((s) => s.id === id);
@@ -82,6 +83,12 @@ async function SourceBody({ params }: { params: PageProps<"/sources/[id]">["para
         />
       </div>
 
+      {openAlerts.length > 0 && (
+        <Card title="Open alerts">
+          <AlertList alerts={openAlerts} now={now} showSource={false} />
+        </Card>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
         <Card title="Configuration">
           <pre className="overflow-x-auto text-xs">{JSON.stringify(source.config, null, 2)}</pre>
@@ -106,6 +113,20 @@ async function SourceBody({ params }: { params: PageProps<"/sources/[id]">["para
         </div>
         <RunsTable runs={runs} now={now} showSource={false} />
       </div>
+
+      <details className="text-sm">
+        <summary className="cursor-pointer text-zinc-500">Re-parse stored data</summary>
+        <form action={reparseSourceAction} className="mt-3 flex items-center gap-3">
+          <input type="hidden" name="sourceId" value={source.id} />
+          <button type="submit" className={buttonClass}>
+            Re-parse
+          </button>
+          <span className="text-xs text-zinc-500">
+            Runs the current parser over this source&apos;s stored raw responses (last 30 days), with no new requests. Use it after a
+            parser fix for a layout change.
+          </span>
+        </form>
+      </details>
 
       <details className="text-sm">
         <summary className="cursor-pointer text-zinc-500">Danger zone</summary>

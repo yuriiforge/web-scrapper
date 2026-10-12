@@ -1,6 +1,6 @@
 import { Controller, Get, Inject, Query } from '@nestjs/common';
 import { clients, costs, runs, sources, type Db } from '@lp/db';
-import { and, asc, count, eq, gte, lt, sum } from 'drizzle-orm';
+import { and, asc, count, eq, gte, isNull, lt, sum } from 'drizzle-orm';
 import { periodQuery, resolvePeriod, type PeriodQuery } from '../common/period';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { DB } from '../tokens';
@@ -35,6 +35,12 @@ export class CostsController {
       .from(costs)
       .where(inCosts)
       .groupBy(costs.sourceId);
+    // Spend not tied to a source (model scoring), per client.
+    const unsourced = await this.db
+      .select({ clientId: costs.clientId, usd: sum(costs.usd).mapWith(Number) })
+      .from(costs)
+      .where(and(inCosts, isNull(costs.sourceId)))
+      .groupBy(costs.clientId);
     const byProvider = await this.db
       .select({ provider: costs.provider, unit: costs.unit, units: sum(costs.units).mapWith(Number), usd: sum(costs.usd).mapWith(Number) })
       .from(costs)
@@ -65,7 +71,8 @@ export class CostsController {
 
     const clientTotals = [...new Map(rows.map((r) => [r.clientId, r.clientName])).entries()].map(([clientId, clientName]) => {
       const mine = rows.filter((r) => r.clientId === clientId);
-      const usd = mine.reduce((n, r) => n + r.usd, 0);
+      const analysisUsd = unsourced.find((u) => u.clientId === clientId)?.usd ?? 0;
+      const usd = mine.reduce((n, r) => n + r.usd, 0) + analysisUsd;
       const itemsNew = mine.reduce((n, r) => n + r.itemsNew, 0);
       return {
         clientId,
@@ -74,6 +81,8 @@ export class CostsController {
         requests: mine.reduce((n, r) => n + r.requests, 0),
         itemsNew,
         usd,
+        /** Part of `usd`: model scoring of this client's items, not tied to one source. */
+        analysisUsd,
         usdPerNewItem: itemsNew > 0 ? usd / itemsNew : null,
       };
     });

@@ -46,11 +46,31 @@ describe('a full run, then incremental runs', () => {
     expect(cp?.cursor).toMatchObject({ id: posts[0]!.id });
   });
 
-  it('adds zero items on a second run with nothing new, reading only one page', async () => {
+  it('adds zero items on a second run with nothing new, re-reading only the comment lookback window', async () => {
     const before = await itemCount();
+    const requestsBefore = mock.ctx.state.requests.entries.length;
     const summary = await executeRun(executorDeps(db, mock), await createRun(db.db, sourceId, 'manual'));
-    expect(summary).toMatchObject({ status: 'succeeded', itemsNew: 0, pages: 1 });
+    expect(summary).toMatchObject({ status: 'succeeded', itemsNew: 0 });
     expect(await itemCount()).toBe(before);
+    // Listing pages only: every post's comment count matches what is stored, so no comment requests.
+    const made = mock.ctx.state.requests.entries.slice(requestsBefore);
+    expect(made.filter((e) => e.path.includes('/comments'))).toHaveLength(0);
+    expect(summary.pages).toBeLessThanOrEqual(3);
+  });
+
+  it('collects new comments on posts it has already collected', async () => {
+    const { ids } = (await mock.admin('POST', '/publish', { site: 'threadit', kind: 'comments', count: 6, community })) as { ids: string[] };
+    const postsWithNew = new Set(
+      mock.ctx.corpus.threadit.posts.filter((p) => p.comments.some((c) => ids.includes(c.id))).map((p) => p.id),
+    );
+    const requestsBefore = mock.ctx.state.requests.entries.length;
+    const summary = await executeRun(executorDeps(db, mock), await createRun(db.db, sourceId, 'manual'));
+    expect(summary).toMatchObject({ status: 'succeeded', itemsNew: ids.length });
+    const stored = new Set((await db.db.select({ id: items.externalId }).from(items)).map((r) => r.id));
+    for (const id of ids) expect(stored.has(id)).toBe(true);
+    // Comments were fetched only for the posts that got new ones.
+    const commentCalls = mock.ctx.state.requests.entries.slice(requestsBefore).filter((e) => e.path.includes('/comments'));
+    expect(new Set(commentCalls.map((e) => /posts\/([^/]+)\/comments/.exec(e.path)![1]))).toEqual(postsWithNew);
   });
 
   it('picks up only posts published since the last run', async () => {

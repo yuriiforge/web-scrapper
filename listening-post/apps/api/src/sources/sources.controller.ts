@@ -43,6 +43,13 @@ export class SourcesController {
     return this.sources.runNow(id);
   }
 
+  /** Re-parse stored raw responses (202): recovers data after a parser fix, without new requests. */
+  @Post(':id/reparse')
+  @HttpCode(202)
+  reparse(@Param('id', ParseUUIDPipe) id: string) {
+    return this.sources.reparse(id);
+  }
+
   @Get(':id/stats')
   stats(@Param('id', ParseUUIDPipe) id: string) {
     return this.sources.runStats(id);

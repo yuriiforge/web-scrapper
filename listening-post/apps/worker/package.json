@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@lp/analysis": "^0.1.0",
     "@lp/collectors": "^0.1.0",
     "@lp/db": "^0.1.0",
     "@lp/queue": "^0.1.0",

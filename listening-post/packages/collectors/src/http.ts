@@ -5,6 +5,12 @@ export interface HttpRequest {
   url: string;
   method?: 'GET' | 'POST';
   headers?: Record<string, string>;
+  /**
+   * Headers computed right before each attempt, after any rate-limit wait: for credentials that
+   * can expire while a request waits its turn (an access token checked a minute earlier may not be
+   * valid when the request finally goes out).
+   */
+  lateHeaders?: () => Promise<Record<string, string>>;
   body?: string;
   timeoutMs?: number;
 }
@@ -98,9 +104,10 @@ export class HttpClient {
     for (;;) {
       this.o.signal?.throwIfAborted();
       await this.o.acquire?.(req.url);
+      const late = req.lateHeaders ? await req.lateHeaders() : undefined;
       let res: HttpResponse;
       try {
-        res = await this.once(req);
+        res = await this.once(late ? { ...req, headers: { ...req.headers, ...late } } : req);
       } catch (err) {
         if (this.o.signal?.aborted) throw this.o.signal.reason;
         failures += 1;

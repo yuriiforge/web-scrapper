@@ -1,5 +1,5 @@
 // Build step 3 acceptance checks for the Agora collector, against a real Postgres and an in-process mock-web.
-import { items, rawResponses, type DbHandle } from '@lp/db';
+import { checkpoints, items, rawResponses, type DbHandle } from '@lp/db';
 import { count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AgoraCollector } from '../src/agora/collector';
@@ -23,13 +23,16 @@ const get = async (url: string): Promise<RawResponse> => {
   return { url, status: res.status, headers: {}, body: await res.text(), fetchedAt: new Date() };
 };
 
-/** The topics a run with `maxTopics` should collect: the most recently active ones in the category. */
-function expectedPosts(mock: MockWeb, category: string, maxTopics: number): Set<string> {
-  const topics = mock.ctx.corpus.agora.topics
-    .filter((t) => t.category === category)
-    .sort((a, b) => b.lastPosted - a.lastPosted || (a.id < b.id ? 1 : -1))
-    .slice(0, maxTopics);
-  return new Set(topics.flatMap((t) => t.posts.map((p) => p.id)));
+/** Topics by latest activity, as Agora's listings order them; all categories when `category` is null. */
+function rankedTopics(mock: MockWeb, category: string | null) {
+  return mock.ctx.corpus.agora.topics
+    .filter((t) => category === null || t.category === category)
+    .sort((a, b) => b.lastPosted - a.lastPosted || (a.id < b.id ? 1 : -1));
+}
+
+/** The posts a run with `maxTopics` should collect: those of the most recently active topics. */
+function expectedPosts(mock: MockWeb, category: string | null, maxTopics: number): Set<string> {
+  return new Set(rankedTopics(mock, category).slice(0, maxTopics).flatMap((t) => t.posts.map((p) => p.id)));
 }
 
 async function storedIds(): Promise<Set<string>> {
@@ -94,7 +97,31 @@ describe('a JSON run, then incremental runs', () => {
     expect(stats.entries[0]!.path).toBe('/agora/robots.txt');
   });
 
-  it('gets mostly 304s on a rerun with no new posts, and adds nothing', async () => {
+  it('continues the backlog after a capped run, without fetching the first topics again', async () => {
+    const first = expectedPosts(mock, 'meal-kits', 6);
+    const next = new Set([...expectedPosts(mock, 'meal-kits', 12)].filter((id) => !first.has(id)));
+    const firstTopics = rankedTopics(mock, 'meal-kits').slice(0, 6).map((t) => t.id);
+    const since = Date.now();
+
+    const summary = await executeRun(executorDeps(db, mock), await createRun(db.db, sourceId, 'manual'));
+    expect(summary).toMatchObject({ status: 'succeeded', itemsNew: next.size });
+    expect(await storedIds()).toEqual(new Set([...first, ...next]));
+    const stats = await requestStats(mock, 'agora', since);
+    expect(stats.entries.filter((e) => firstTopics.some((id) => e.path.startsWith(`/agora/t/${id}`)))).toHaveLength(0);
+  });
+
+  it('gets mostly 304s on a rerun of a fully collected source, and adds nothing', async () => {
+    // A complete crawl of a category takes minutes at one request a second, so start from the
+    // checkpoint a complete crawl leaves: everything up to the newest activity is stored.
+    const newest = new Date(rankedTopics(mock, 'meal-kits')[0]!.lastPosted).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const [cp] = await db.db.select().from(checkpoints).where(eq(checkpoints.sourceId, sourceId));
+    await db.db
+      .update(checkpoints)
+      .set({ cursor: { ...(cp!.cursor as object), watermark: newest, done: null } })
+      .where(eq(checkpoints.sourceId, sourceId));
+
+    // The first rerun stores the listing's ETag; the second is answered with 304s.
+    await executeRun(executorDeps(db, mock), await createRun(db.db, sourceId, 'manual'));
     const since = Date.now();
     const summary = await executeRun(executorDeps(db, mock), await createRun(db.db, sourceId, 'manual'));
     expect(summary).toMatchObject({ status: 'succeeded', itemsNew: 0 });
@@ -123,6 +150,30 @@ describe('a JSON run, then incremental runs', () => {
     // robots.txt (304) + one listing page + the pages of at most 3 changed topics, not the whole category.
     expect(stats.total).toBeLessThan(15);
     expect(stats.peak_rps).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('sitemap discovery', () => {
+  it('reads the sitemap for the first crawl of every category, then the latest listing for the backlog', async () => {
+    await truncateAll(db);
+    const mock = await startMockWeb();
+    try {
+      const sourceId = await createSource(db, { format: 'json', maxTopics: 5 }, 'agora all', 'agora');
+      const since = Date.now();
+      const first = await executeRun(executorDeps(db, mock), await createRun(db.db, sourceId, 'manual'));
+      expect(first).toMatchObject({ status: 'succeeded', itemsNew: expectedPosts(mock, null, 5).size });
+      expect(await storedIds()).toEqual(expectedPosts(mock, null, 5));
+      const firstPaths = (await requestStats(mock, 'agora', since)).entries.map((e) => e.path);
+      expect(firstPaths).toContain('/agora/sitemap.xml');
+      expect(firstPaths.some((p) => p.startsWith('/agora/latest') || p.startsWith('/agora/c/'))).toBe(false);
+
+      const second = await executeRun(executorDeps(db, mock), await createRun(db.db, sourceId, 'manual'));
+      const tenTopics = expectedPosts(mock, null, 10);
+      expect(second).toMatchObject({ status: 'succeeded', itemsNew: tenTopics.size - expectedPosts(mock, null, 5).size });
+      expect(await storedIds()).toEqual(tenTopics);
+    } finally {
+      await mock.close();
+    }
   });
 });
 

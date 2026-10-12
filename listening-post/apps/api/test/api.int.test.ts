@@ -1,5 +1,7 @@
 // The REST API against a real database: validation, CRUD, run control, and the dashboard reports.
 import 'reflect-metadata';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { clients, costs, itemScores, items, runs, sources, type DbHandle } from '@lp/db';
@@ -14,11 +16,26 @@ let db: DbHandle;
 let app: INestApplication;
 let api: ReturnType<typeof request>;
 let clientId: string;
+let truthServer: Server;
+let truthUrl: string;
+
+/** Stands in for mock-web's /_admin/truth: knows ap_1 and ap_2 only. */
+const TRUTH: Record<string, { category: string; sentiment: string }> = {
+  ap_1: { category: 'price', sentiment: 'positive' },
+  ap_2: { category: 'delivery', sentiment: 'negative' },
+};
 
 beforeAll(async () => {
   db = await freshDatabase();
+  truthServer = createServer((req, res) => {
+    const ids = new URL(req.url!, 'http://x').searchParams.get('ids')?.split(',') ?? [];
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(ids.filter((i) => TRUTH[i]).map((i) => ({ id: i, site: 'agora', ...TRUTH[i] }))));
+  });
+  await new Promise<void>((resolve) => truthServer.listen(0, '127.0.0.1', resolve));
+  truthUrl = `http://127.0.0.1:${(truthServer.address() as AddressInfo).port}/_admin/truth`;
   const moduleRef = await Test.createTestingModule({
-    imports: [AppModule.register({ DATABASE_URL: TEST_DATABASE_URL, LOG_LEVEL: 'silent', API_PORT: 0 })],
+    imports: [AppModule.register({ DATABASE_URL: TEST_DATABASE_URL, LOG_LEVEL: 'silent', API_PORT: 0, TRUTH_URL: truthUrl })],
   }).compile();
   app = moduleRef.createNestApplication({ logger: false });
   configureApp(app);
@@ -28,6 +45,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app?.close();
+  truthServer?.close();
   await db?.close();
 });
 
@@ -185,7 +203,34 @@ describe('dashboard reports', () => {
     ]);
     const res = (await api.get('/api/insights/sentiment?days=7').expect(200)).body;
     expect(res.scoredItems).toBe(2);
+    expect(res.llmScoredItems).toBe(1);
     expect(res.cells).toEqual([{ country: 'GB', category: 'price', n: 2, positive: 1, negative: 1, net: 0 }]);
+  });
+
+  it('evaluates each method against ground truth and reports coverage', async () => {
+    const all = await db.db.select({ id: items.id, externalId: items.externalId }).from(items);
+    const id = (ext: string) => all.find((i) => i.externalId === ext)!.id;
+    expect((await api.post('/api/analysis/evaluations').send({ method: 'rules', sampleSize: 5 }).expect(400)).body.field).toBe('sampleSize');
+
+    // rules: ap_1 price/negative (truth price/positive), ap_2 price/negative (truth delivery/negative).
+    const rules = (await api.post('/api/analysis/evaluations').send({ method: 'rules', sampleSize: 50 }).expect(201)).body;
+    expect(rules).toMatchObject({ method: 'rules', sampleSize: 2, categoryAccuracy: 0.5, sentimentAccuracy: 0.5 });
+    expect(rules.f1ByClass.category.delivery).toEqual({ precision: 0, recall: 0, f1: 0, support: 1 });
+    const llm = (await api.post('/api/analysis/evaluations').send({ method: 'llm' }).expect(201)).body;
+    expect(llm).toMatchObject({ method: 'llm', sampleSize: 1, categoryAccuracy: 1, sentimentAccuracy: 1 });
+
+    const list = (await api.get('/api/analysis/evaluations').expect(200)).body;
+    expect(list.map((e: { method: string }) => e.method)).toEqual(['llm', 'rules']);
+    const status = (await api.get('/api/analysis').expect(200)).body;
+    expect(status).toMatchObject({ items: 5, duplicates: 0, crossSiteDuplicates: 0, methods: { rules: { scored: 2, unlabelled: 0 }, llm: { scored: 1 } }, llmSpendMonthUsd: 0 });
+    expect(Date.parse(status.methods.rules.latestAt)).not.toBeNaN();
+
+    // ap_5 repeats ap_1 on another site; ap_4 repeats it on the same site.
+    const [ap1, ap4, ap5] = ['ap_1', 'ap_4', 'ap_5'].map((e) => id(e));
+    await db.db.update(items).set({ duplicateOf: ap1 }).where(sql`${items.id} in (${ap4}, ${ap5})`);
+    await db.db.update(items).set({ site: 'chirp' }).where(sql`${items.id} = ${ap5}`);
+    expect((await api.get('/api/analysis').expect(200)).body).toMatchObject({ duplicates: 2, crossSiteDuplicates: 1 });
+    await db.db.update(items).set({ duplicateOf: null, site: 'agora' }).where(sql`${items.id} in (${ap4}, ${ap5})`);
   });
 
   it('gives the overview in one request', async () => {
@@ -198,5 +243,25 @@ describe('dashboard reports', () => {
   it('rejects an inverted period', async () => {
     const res = await api.get('/api/costs?from=2026-10-09T00:00:00Z&to=2026-10-01T00:00:00Z').expect(400);
     expect(res.body.field).toBe('from');
+  });
+});
+
+describe('API token', () => {
+  it('requires the bearer token on /api when API_TOKEN is set, but not on /health', async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule.register({ DATABASE_URL: TEST_DATABASE_URL, LOG_LEVEL: 'silent', API_PORT: 0, TRUTH_URL: truthUrl, API_TOKEN: 'a-token-long-enough-1234' })],
+    }).compile();
+    const locked = moduleRef.createNestApplication({ logger: false });
+    configureApp(locked);
+    await locked.init();
+    try {
+      const r = request(locked.getHttpServer());
+      expect((await r.get('/api/sources').expect(401)).body).toEqual({ error: 'unauthorized' });
+      await r.get('/api/sources').set('Authorization', 'Bearer wrong-token-of-same-size').expect(401);
+      await r.get('/api/sources').set('Authorization', 'Bearer a-token-long-enough-1234').expect(200);
+      await r.get('/health').expect(200);
+    } finally {
+      await locked.close();
+    }
   });
 });

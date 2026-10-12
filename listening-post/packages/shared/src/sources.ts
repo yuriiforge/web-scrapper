@@ -10,6 +10,11 @@ export const threaditConfig = z.object({
   pageSize: z.number().int().min(1).max(100).default(100),
   /** Also collect comments for each new post. */
   includeComments: z.boolean().default(true),
+  /**
+   * Posts this many hours older than the newest stored post are checked again for new comments
+   * (their comment count is compared with what is stored). 0 turns it off.
+   */
+  commentLookbackHours: z.number().int().min(0).max(720).default(72),
   /** Stop after this many listing pages; unset means until the checkpoint or the end. */
   maxPages: z.number().int().min(1).optional(),
   /** Overrides the collector's default request rate for this source. */
@@ -52,11 +57,31 @@ export const ratewellConfig = z.object({
 });
 export type RatewellConfig = z.infer<typeof ratewellConfig>;
 
+export const chirpConfig = z.object({
+  /** Search text; Chirp matches it as a substring of the post. */
+  query: z.string().trim().min(1).max(200),
+  /** ISO country code; only posts that carry this country. Most posts carry none. */
+  country: z
+    .string()
+    .regex(/^[A-Z]{2}$/, 'two capital letters, e.g. GB')
+    .optional(),
+  /** Posts per request, 10 to 100. Each post returned costs a credit. */
+  maxResults: z.number().int().min(10).max(100).default(100),
+  /** Stop after paying for this many posts in one run; the rest waits for the next run. */
+  maxPostsPerRun: z.number().int().min(10).default(1000),
+  /** How far back the first run goes. Older posts are never bought. */
+  backfillDays: z.number().int().min(1).max(365).default(30),
+  /** Requests per minute; Chirp allows 30 per key. Default 25. */
+  ratePerMinute: z.number().int().min(1).optional(),
+});
+export type ChirpConfig = z.infer<typeof chirpConfig>;
+
 /** Sites whose collectors exist so far. Others are added in later build steps. */
 export const SOURCE_CONFIGS = {
   threadit: threaditConfig,
   agora: agoraConfig,
   ratewell: ratewellConfig,
+  chirp: chirpConfig,
 } as const satisfies Partial<Record<Site, z.ZodType>>;
 
 export const SUPPORTED_SITES = Object.keys(SOURCE_CONFIGS) as (keyof typeof SOURCE_CONFIGS)[];
@@ -77,6 +102,7 @@ export const createSourceSchema = z.discriminatedUnion('site', [
   sourceBase.extend({ site: z.literal('threadit'), config: threaditConfig }),
   sourceBase.extend({ site: z.literal('agora'), config: agoraConfig, strategy: z.enum(STRATEGIES).default('html') }),
   sourceBase.extend({ site: z.literal('ratewell'), config: ratewellConfig, strategy: z.enum(STRATEGIES).default('html') }),
+  sourceBase.extend({ site: z.literal('chirp'), config: chirpConfig, strategy: z.enum(STRATEGIES).default('api') }),
 ]);
 export type CreateSource = z.infer<typeof createSourceSchema>;
 
