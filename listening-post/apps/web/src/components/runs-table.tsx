@@ -36,6 +36,7 @@ export function RunsTable({ runs, now, showSource = true }: { runs: Run[]; now: 
               <Link href={`/runs/${r.id}`} className="hover:underline">
                 <StatusBadge status={r.status} />
               </Link>
+              {r.strategy && <span className="ml-2 text-xs text-zinc-500">via {r.strategy}</span>}
               {r.errorClass && (
                 <div className="mt-1 max-w-xs text-xs text-red-700 dark:text-red-400" title={r.errorMessage ?? undefined}>
                   {r.errorClass}: {r.errorMessage?.slice(0, 120)}

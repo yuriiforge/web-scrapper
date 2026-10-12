@@ -1,7 +1,7 @@
 import { gzipSync } from 'node:zlib';
-import { checkpoints, httpCache, items, rawResponses, runs, sources, type Db } from '@lp/db';
-import type { RunStatus, RunTrigger } from '@lp/shared';
-import { and, desc, eq, ne, sql } from 'drizzle-orm';
+import { checkpoints, costs, httpCache, items, rawResponses, runs, sources, type Db } from '@lp/db';
+import type { RunStatus, RunTrigger, Strategy } from '@lp/shared';
+import { and, desc, eq, gte, ne, sql, sum } from 'drizzle-orm';
 import type { Logger } from 'pino';
 import { CollectorError, errorClassOf } from './errors';
 import { HttpClient, sleep as defaultSleep, type HttpClientOptions, type Sleep } from './http';
@@ -96,8 +96,12 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
       .catch(() => undefined);
   }, deps.cancelPollMs ?? 2000);
 
+  let collector: Collector | undefined;
+  let ctx: RunContext | undefined;
+  const strategyNow = () => collector?.strategy;
+
   try {
-    const collector = (deps.createCollector ?? defaultCreateCollector)(source, deps.collectorDeps);
+    collector = (deps.createCollector ?? defaultCreateCollector)(source, deps.collectorDeps);
     const perMinute = collector.ratePerMinute ?? deps.defaultRatePerMinute;
     const limit = collector.burst === undefined ? rateLimit(perMinute) : { perMinute, burst: collector.burst };
     const http = new HttpClient({
@@ -111,13 +115,25 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
       acquire: (url) => deps.limiter.acquire(`${source.site}:${new URL(url).host}`, limit, controller.signal),
       ...deps.http,
     });
-    const ctx: RunContext = {
+    ctx = {
       http,
       log,
       signal: controller.signal,
       sleep,
       now,
       etag: async (url) => (await db.select({ etag: httpCache.etag }).from(httpCache).where(eq(httpCache.url, url)))[0]?.etag,
+      charge: async (c) => {
+        await db.insert(costs).values({ runId, clientId: source.clientId, sourceId: source.id, ...c });
+        log.debug(c, 'charged');
+      },
+      budgetLeftUsd: async () => {
+        if (source.budgetUsdMonth === null) return null;
+        const [spent] = await db
+          .select({ usd: sum(costs.usd).mapWith(Number) })
+          .from(costs)
+          .where(and(eq(costs.sourceId, source.id), gte(costs.createdAt, monthStartUtc(now()))));
+        return source.budgetUsdMonth - (spent?.usd ?? 0);
+      },
     };
     /** ETags of responses parsed this run; saved only if the run succeeds. */
     const etags = new Map<string, string>();
@@ -142,17 +158,18 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
       state = page.next;
     }
 
+    const done = collector;
     await db.transaction(async (tx) => {
-      await saveCheckpoint(tx, source.id, collector);
+      await saveCheckpoint(tx, source.id, done);
       await saveEtags(tx, etags);
-      await finish(tx, runId, 'succeeded', counters, now);
+      await finish(tx, runId, 'succeeded', counters, now, undefined, strategyNow());
     });
     log.info(counters, 'run succeeded');
     return { runId, status: 'succeeded', ...counters };
   } catch (err) {
     if (cancelled) {
       log.info(counters, 'run cancelled');
-      await finish(db, runId, 'cancelled', counters, now);
+      await finish(db, runId, 'cancelled', counters, now, undefined, strategyNow());
       return { runId, status: 'cancelled', ...counters };
     }
     const aborted = controller.signal.aborted && !(err instanceof CollectorError);
@@ -166,9 +183,12 @@ export async function executeRun(deps: ExecutorDeps, runId: string, signal?: Abo
       const expiresAt = new Date(now() + deps.rawRetentionDays * 86_400_000);
       for (const raw of err.responses) if (!saved.has(raw)) await saveRaw(db, runId, raw, expiresAt).catch(() => undefined);
     }
-    await finish(db, runId, status, counters, now, { errorClass, errorMessage });
+    await finish(db, runId, status, counters, now, { errorClass, errorMessage }, strategyNow());
     return { runId, status, ...counters, errorClass, errorMessage };
   } finally {
+    if (collector?.close && ctx) {
+      await collector.close(ctx).catch((err: unknown) => log.warn({ err }, 'collector close failed'));
+    }
     clearInterval(watcher);
     signal?.removeEventListener('abort', onAbort);
   }
@@ -186,10 +206,18 @@ async function finish(
   counters: { pages: number; requests: number; itemsFound: number; itemsNew: number },
   now: () => number,
   error?: { errorClass: NonNullable<typeof runs.$inferInsert.errorClass>; errorMessage: string },
+  strategy?: Strategy,
 ): Promise<void> {
   await db
     .update(runs)
-    .set({ status, ...counters, finishedAt: new Date(now()), errorClass: error?.errorClass ?? null, errorMessage: error?.errorMessage ?? null })
+    .set({
+      status,
+      ...counters,
+      finishedAt: new Date(now()),
+      errorClass: error?.errorClass ?? null,
+      errorMessage: error?.errorMessage ?? null,
+      strategy: strategy ?? null,
+    })
     // A cancel that lands during the last page wins: never overwrite `cancelled` with another outcome.
     .where(status === 'cancelled' ? eq(runs.id, runId) : and(eq(runs.id, runId), ne(runs.status, 'cancelled')));
 }
@@ -261,6 +289,7 @@ async function upsertItems(
       country: p.country,
       publishedAt: p.publishedAt,
       rawResponseId,
+      meta: p.meta ?? {},
     };
   });
   const result = await db
@@ -275,11 +304,18 @@ async function upsertItems(
         country: sql`excluded.country`,
         publishedAt: sql`excluded.published_at`,
         rawResponseId: sql`excluded.raw_response_id`,
+        meta: sql`excluded.meta`,
       },
     })
     // xmax = 0 only on rows this statement inserted rather than updated.
     .returning({ inserted: sql<boolean>`(xmax = 0)` });
   return { found: unique.length, inserted: result.filter((r) => r.inserted).length };
+}
+
+/** Start of the calendar month (UTC) containing `ms`; monthly budgets reset then. */
+function monthStartUtc(ms: number): Date {
+  const d = new Date(ms);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
 
 function summaryOf(run: typeof runs.$inferSelect): RunSummary {

@@ -81,6 +81,11 @@ services:
       SOURCE_BASE_URL: http://mock-web:4000
       WORKER_CONCURRENCY: 4
       HEARTBEAT_INTERVAL_MS: 10000
+      PASSGATE_KEY: pg-dev-key
+      PASSGATE_CREDIT_USD: 0.002
+      BROWSER_MINUTE_USD: 0.01
+    # Chromium needs more shared memory than Docker's 64 MB default.
+    shm_size: 512m
     depends_on:
       migrate:
         condition: service_completed_successfully

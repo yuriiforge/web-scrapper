@@ -41,11 +41,11 @@ async function CostsBody({ searchParams }: { searchParams: PageProps<"/costs">["
       {totals.usd === 0 && (
         <Card>
           <p className="text-sm">
-            <strong>No paid usage yet.</strong>{" "}
+            <strong>No paid usage in this period.</strong>{" "}
             <span className="text-zinc-600 dark:text-zinc-400">
-              Threadit (official API) and Agora (public pages) cost nothing per request, so spend is $0. Paid rows appear here once
-              Ratewell escalates to the PassGate unblocker (step 4) and Chirp&apos;s metered API is collected (step 5); each charge is
-              recorded per run, source and client.
+              Threadit (official API), Agora (public pages) and Ratewell over plain HTTP cost nothing per request. Spend appears when
+              Ratewell needs a browser (charged per minute) or the PassGate unblocker (per credit), and later for Chirp&apos;s metered
+              API (step 5). Each charge is recorded per run, source and client.
             </span>
           </p>
         </Card>

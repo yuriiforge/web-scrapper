@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeText, textHash } from '../src/normalize';
+import { normalizeText, textHash, withTitle } from '../src/normalize';
 import { ThreaditCollector } from '../src/threadit/collector';
 
 const collector = new ThreaditCollector(
@@ -27,7 +27,7 @@ describe('Threadit parse', () => {
       {
         externalId: 't3_000123',
         author: 'quiet_harbor_41',
-        text: 'Thoughts on Ledgerly app?\n\nThe Ledgerly app is fairly standard.',
+        text: 'Thoughts on Ledgerly app? The Ledgerly app is fairly standard.',
         country: 'GB',
         publishedAt: new Date(1791000000 * 1000),
       },
@@ -72,5 +72,13 @@ describe('normalisation', () => {
   it('gives cross-site copies the same hash regardless of case and spacing', () => {
     expect(textHash('Great  value.')).toBe(textHash('<p>great value.</p>'));
     expect(textHash('Great value.')).not.toBe(textHash('Poor value.'));
+  });
+});
+
+describe('withTitle', () => {
+  it('separates a title from its body with a full stop unless the title already ends a sentence', () => {
+    expect(withTitle('Voltra pricing is a joke', 'The price is too high.')).toBe('Voltra pricing is a joke. The price is too high.');
+    expect(withTitle('Thoughts on Voltra?', 'It is fine.')).toBe('Thoughts on Voltra? It is fine.');
+    expect(withTitle('  Only a title  ', '  ')).toBe('Only a title');
   });
 });

@@ -82,6 +82,16 @@ export class HttpClient {
     return Math.round(raw * (0.7 + 0.6 * this.o.random()));
   }
 
+  /**
+   * Waits for a rate-limit token and counts one request, for traffic sent outside this client
+   * (a browser's page loads and clicks), so it is limited and accounted for like any other request.
+   */
+  async throttle(url: string): Promise<void> {
+    this.o.signal?.throwIfAborted();
+    await this.o.acquire?.(url);
+    this.o.onAttempt?.(url);
+  }
+
   async request(req: HttpRequest): Promise<HttpResponse> {
     let failures = 0;
     let rateWaits = 0;

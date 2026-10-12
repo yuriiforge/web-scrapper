@@ -7,6 +7,19 @@ import type { Client, SourceDetail } from "@/lib/api";
 
 const AGORA_CATEGORIES = ["electric-cars", "budget-airlines", "meal-kits", "fitness-trackers", "online-banks"];
 const THREADIT_COMMUNITIES = ["gb", "de", "fr", "us", "pl", "ua", "electric_cars", "budget_airlines", "meal_kits", "fitness_trackers", "online_banks"];
+const RATEWELL_COMPANIES = [
+  "voltra-motors", "ampwick-auto", "silvane-ev", "kestrel-drive", "northcoil-cars", "brindle-electric", "zephyrine-motors", "ohmsted-auto",
+  "skypenny-air", "lowcloud-airways", "fairwing", "jetsparrow", "cirrusaver", "hopwell-air", "tailbreeze", "bluestep-airlines",
+  "pantrybox", "forkfold", "simmerly", "crate-ladle", "hearthkit", "greenparcel", "spoonward", "dinnerloft",
+  "pulseroo", "stridewell", "heartlap", "pacewren", "vitaloop", "trekmark", "cadenza-fit", "moxie-band",
+  "coinharbor", "ledgerly", "brightvault", "pennyfox-bank", "quillbank", "mintora", "hollow-oak-bank", "tallycap",
+];
+const RATEWELL_STEPS = [
+  { value: "html", label: "Plain HTTP", hint: "free; reimplements the page's token" },
+  { value: "browser", label: "Browser (Playwright)", hint: "about $0.01 a minute" },
+  { value: "unblocker", label: "PassGate unblocker", hint: "1 credit a page, 5 for a rendered page" },
+];
+const SITE_NAMES: Record<string, string> = { threadit: "Threadit", agora: "Agora", ratewell: "Ratewell" };
 
 /** Create or edit a source. Site-specific config fields change with the site; the API has the final say on validity. */
 export function SourceForm({ clients, source }: { clients: Client[]; source?: SourceDetail }) {
@@ -18,6 +31,7 @@ export function SourceForm({ clients, source }: { clients: Client[]; source?: So
       <p className="mt-1 text-xs text-red-700 dark:text-red-400">{state.error}</p>
     ) : null;
   const value = (k: string) => (cfg[k] === undefined ? undefined : String(cfg[k]));
+  const steps = Array.isArray(source?.config.strategies) ? (source.config.strategies as string[]) : RATEWELL_STEPS.map((s) => s.value);
 
   return (
     <form action={action} className="max-w-xl space-y-5">
@@ -40,6 +54,7 @@ export function SourceForm({ clients, source }: { clients: Client[]; source?: So
             <select id="siteSelect" className={inputClass} value={site} onChange={(e) => setSite(e.target.value)}>
               <option value="threadit">Threadit (official API)</option>
               <option value="agora">Agora (forum)</option>
+              <option value="ratewell">Ratewell (reviews, bot-protected)</option>
             </select>
           </Field>
         </div>
@@ -51,7 +66,7 @@ export function SourceForm({ clients, source }: { clients: Client[]; source?: So
       </Field>
 
       <fieldset className="space-y-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-        <legend className="px-1 text-sm font-medium">{site === "threadit" ? "Threadit settings" : "Agora settings"}</legend>
+        <legend className="px-1 text-sm font-medium">{SITE_NAMES[site] ?? site} settings</legend>
         {site === "threadit" ? (
           <>
             <Field label="Community" htmlFor="community" hint="A country (gb, de, …) or a topic (meal_kits, …)">
@@ -81,6 +96,42 @@ export function SourceForm({ clients, source }: { clients: Client[]; source?: So
               <input type="checkbox" name="includeComments" defaultChecked={cfg.includeComments !== false} />
               Collect comments of new posts
             </label>
+          </>
+        ) : site === "ratewell" ? (
+          <>
+            <Field label="Company" htmlFor="company" hint="The company's slug on Ratewell, e.g. voltra-motors">
+              <input id="company" name="company" list="companies" className={inputClass} defaultValue={value("company")} required />
+              <datalist id="companies">
+                {RATEWELL_COMPANIES.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+              {errorFor("company")}
+            </Field>
+            <fieldset>
+              <legend className="mb-1 text-sm font-medium">Allowed steps (cheapest first)</legend>
+              <div className="space-y-1 text-sm">
+                {RATEWELL_STEPS.map((s) => (
+                  <label key={s.value} className="flex items-start gap-2">
+                    <input type="checkbox" name={`step_${s.value}`} defaultChecked={steps.includes(s.value)} className="mt-1" />
+                    <span>
+                      {s.label} <span className="text-xs text-zinc-500">{s.hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {errorFor("strategies")}
+            </fieldset>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Max pages" htmlFor="maxPages" hint="20 reviews a page; empty: no limit">
+                <input id="maxPages" name="maxPages" type="number" min={1} className={inputClass} defaultValue={value("maxPages")} />
+                {errorFor("maxPages")}
+              </Field>
+              <Field label="Requests / min" htmlFor="ratePerMinute" hint="Default 20; above 30 the site blocks for 5 min">
+                <input id="ratePerMinute" name="ratePerMinute" type="number" min={1} className={inputClass} defaultValue={value("ratePerMinute")} />
+                {errorFor("ratePerMinute")}
+              </Field>
+            </div>
           </>
         ) : (
           <>

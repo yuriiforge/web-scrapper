@@ -32,10 +32,31 @@ export const agoraConfig = z.object({
 });
 export type AgoraConfig = z.infer<typeof agoraConfig>;
 
+/** Ratewell's escalation ladder, cheapest first: plain HTTP, a real browser, then the paid unblocker. */
+export const RATEWELL_LADDER = ['html', 'browser', 'unblocker'] as const;
+export type RatewellStep = (typeof RATEWELL_LADDER)[number];
+
+export const ratewellConfig = z.object({
+  /** Company slug, e.g. "voltra-motors". */
+  company: z.string().regex(/^[a-z0-9-]+$/, 'lower-case letters, digits and - only'),
+  /** Steps this source may use, in ladder order. Leave out "unblocker" to never pay for a page. */
+  strategies: z
+    .array(z.enum(RATEWELL_LADDER))
+    .min(1)
+    .default([...RATEWELL_LADDER])
+    .transform((steps) => RATEWELL_LADDER.filter((s) => steps.includes(s))),
+  /** Stop after this many review pages (20 reviews each). */
+  maxPages: z.number().int().min(1).optional(),
+  /** Data requests per minute; the site blocks a session for 5 minutes above 30. Default 20. */
+  ratePerMinute: z.number().int().min(1).optional(),
+});
+export type RatewellConfig = z.infer<typeof ratewellConfig>;
+
 /** Sites whose collectors exist so far. Others are added in later build steps. */
 export const SOURCE_CONFIGS = {
   threadit: threaditConfig,
   agora: agoraConfig,
+  ratewell: ratewellConfig,
 } as const satisfies Partial<Record<Site, z.ZodType>>;
 
 export const SUPPORTED_SITES = Object.keys(SOURCE_CONFIGS) as (keyof typeof SOURCE_CONFIGS)[];
@@ -55,6 +76,7 @@ const sourceBase = z.object({
 export const createSourceSchema = z.discriminatedUnion('site', [
   sourceBase.extend({ site: z.literal('threadit'), config: threaditConfig }),
   sourceBase.extend({ site: z.literal('agora'), config: agoraConfig, strategy: z.enum(STRATEGIES).default('html') }),
+  sourceBase.extend({ site: z.literal('ratewell'), config: ratewellConfig, strategy: z.enum(STRATEGIES).default('html') }),
 ]);
 export type CreateSource = z.infer<typeof createSourceSchema>;
 

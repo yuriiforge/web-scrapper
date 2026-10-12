@@ -2,6 +2,7 @@ import type { ThreaditConfig } from '@lp/shared';
 import type { z } from 'zod';
 import { CollectorError, assertOk } from '../errors';
 import type { HttpResponse } from '../http';
+import { withTitle } from '../normalize';
 import type { Collector, CollectorDeps, FetchResult, ParsedItem, RawResponse, RunContext } from '../types';
 import { comment, listing, post, tokenResponse, type Post } from './schemas';
 
@@ -83,7 +84,7 @@ export class ThreaditCollector implements Collector<ThreaditState, ThreaditCheck
       return this.decode(raw, listing(post)).data.children.map(({ data: p }) => ({
         externalId: p.id,
         author: p.author,
-        text: p.selftext ? `${p.title}\n\n${p.selftext}` : p.title,
+        text: withTitle(p.title, p.selftext),
         country,
         publishedAt: new Date(p.created_utc * 1000),
       }));

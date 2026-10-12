@@ -62,6 +62,14 @@ function configFrom(site: string, f: FormData): Record<string, unknown> {
       ratePerMinute: optionalInt(f, "ratePerMinute"),
     };
   }
+  if (site === "ratewell") {
+    return {
+      company: text(f, "company"),
+      strategies: ["html", "browser", "unblocker"].filter((s) => f.get(`step_${s}`) === "on"),
+      maxPages: optionalInt(f, "maxPages"),
+      ratePerMinute: optionalInt(f, "ratePerMinute"),
+    };
+  }
   return {
     category: text(f, "category") || undefined,
     format: text(f, "format") || "json",

@@ -1,6 +1,7 @@
 import type { AgoraConfig } from '@lp/shared';
 import { CollectorError, assertOk } from '../errors';
 import type { HttpResponse } from '../http';
+import { withTitle } from '../normalize';
 import { ALLOW_ALL, isAllowed, parseRobots, type RobotsRules } from '../robots';
 import type { Collector, CollectorDeps, FetchResult, ParsedItem, RawResponse, RunContext } from '../types';
 import { parseListingHtml, parseListingJson, parseTopicHtml, parseTopicJson, type ListingPage, type TopicRef } from './parse';
@@ -100,7 +101,7 @@ export class AgoraCollector implements Collector<AgoraState, AgoraCheckpoint> {
       externalId: p.id,
       author: p.username,
       // The opening post carries the topic title, as on Threadit.
-      text: p.postNumber === 1 ? `${topic.title}\n\n${p.html}` : p.html,
+      text: p.postNumber === 1 ? withTitle(topic.title, p.html) : p.html,
       country: null,
       publishedAt: new Date(p.createdAt),
     }));

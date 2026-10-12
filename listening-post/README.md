@@ -2,7 +2,15 @@
 
 A scraping platform pet project. It collects posts and reviews from the five fake sites in [`../mock-web`](../mock-web), stores them in PostgreSQL, scores sentiment by country and category, and shows everything in a Next.js dashboard.
 
-Status: **steps 1–3 and the step 8 dashboard are done**. That covers the collector framework, Threadit (official API), Agora (forum: HTML, hidden JSON, robots.txt, ETags), a NestJS API, and a dashboard with sources, runs, items, costs and insights. Still to come: Ratewell and Chirp (steps 4–5), monitoring and alerts (step 6), and sentiment scoring (step 7). Until step 7, the sentiment grid on Insights is empty. Each source has a short write-up of why it uses its strategy in [`docs/sources/`](docs/sources).
+Status: **steps 1–4 and the step 8 dashboard are done**. That covers:
+
+- the collector framework;
+- Threadit (official API);
+- Agora (forum: HTML, hidden JSON, robots.txt, ETags);
+- Ratewell (bot-protected reviews: plain HTTP → Playwright → PassGate unblocker, with costs and budgets);
+- a NestJS API, and a dashboard with sources, runs, items, costs and insights.
+
+Still to come: Chirp (step 5), monitoring and alerts (step 6), and sentiment scoring (step 7). Until step 7, the sentiment grid on Insights is empty. Each source has a short write-up of why it uses its strategy in [`docs/sources/`](docs/sources).
 
 ## Run it
 
@@ -18,7 +26,21 @@ docker compose up --build -d
 | http://localhost:4000 | mock-web, the sites being scraped |
 | `localhost:5432` | Postgres, user `lp`, password `lp`, database `listening_post` |
 
-The first start adds two demo clients with six sources: four on Threadit and two on Agora (one reading JSON, one parsing HTML). Five have cron schedules, so data arrives without doing anything.
+The first start adds two demo clients with eight sources, so data arrives without doing anything:
+
+- four on Threadit;
+- two on Agora (one reading JSON, one parsing HTML);
+- two on Ratewell, one with a $1 monthly budget.
+
+Seven of them have cron schedules.
+
+To watch Ratewell's escalation ladder, raise the bot checks on mock-web, then press **Run now** on a Ratewell source:
+
+```sh
+curl -X PUT localhost:4000/_admin/chaos/ratewell -H 'content-type: application/json' -d '{"botCheckLevel":3}'
+```
+
+The run ends "via unblocker", and the Costs page shows the browser time and PassGate credits it used. Set the level back to 1 afterwards.
 
 First crawls are slow on purpose. A Threadit community with comments takes about 10 minutes, because the collector stays under Threadit's limit of 60 requests a minute. An Agora category takes about 5 minutes, because robots.txt asks for one request a second. Later runs read only what is new and finish in seconds. On Agora, a rerun with nothing new costs two 304 responses.
 
@@ -35,7 +57,7 @@ First crawls are slow on purpose. A Threadit community with comments takes about
 | **Costs** | Per client and per source: runs, requests, new items, spend, cost per new item, budget; per provider once paid providers exist |
 | **Insights** | Conversations per day by site (7/30/90 days), items by country, items by source, and the country × category sentiment grid |
 
-Spend is $0 for now: Threadit and Agora are free to collect. Paid rows start with PassGate (step 4) and Chirp (step 5).
+Threadit, Agora and Ratewell over plain HTTP cost nothing per request. Spend comes from Ratewell's browser time ($0.01 a minute) and PassGate credits ($0.002 each), and from Chirp in step 5. Prices are set in the worker's environment (`BROWSER_MINUTE_USD`, `PASSGATE_CREDIT_USD`).
 
 Charts use a fixed colour per site, validated for colour blindness in light and dark mode, with hover tooltips and a "Show as table" view. mock-web dates its data up to its fixed `MOCK_NOW` (7 Oct 2026), so days after that are empty in the charts.
 
@@ -93,6 +115,7 @@ Source config by site:
 
 - **Threadit:** `community` (required), `pageSize` (1–100, default 100), `includeComments` (default true), `maxPages`, `ratePerMinute` (default 50).
 - **Agora:** `category` (a slug such as `meal-kits`; unset means every category), `format` (`json` default, or `html`), `maxTopics`, `ratePerMinute` (at most 60; robots.txt Crawl-delay always applies).
+- **Ratewell:** `company` (required, a slug such as `voltra-motors`), `strategies` (allowed ladder steps, default `["html","browser","unblocker"]`; leave out `unblocker` to never pay), `maxPages`, `ratePerMinute` (default 20). Set `budgetUsdMonth` on the source to cap spend.
 
 ## Develop without Docker
 
@@ -121,6 +144,7 @@ The integration tests use a separate `listening_post_test` database, which they 
 | --- | --- |
 | 2 · Threadit | A full run stores every post and comment exactly once; a second run adds nothing; 10 requests a minute finishes with zero 429s; a 2-second token lifetime is refreshed during the run |
 | 3 · Agora | HTML and JSON parsers produce identical items (over 300 posts compared); a rerun with nothing new gets mostly 304s; at most 1 request a second and no hits on `/agora/admin/` |
+| 4 · Ratewell | The browser gets all 150 reviews at bot-check levels 1 and 2 (and is blocked when `navigator.webdriver` is left visible); level 3 escalates html → browser → unblocker and still completes; ledger credits equal PassGate's own count; out of credits or over budget ends as `partial` |
 | API | Validation per site, CRUD, run and cancel, cursor paging without repeats, filters (with a literal `%`), costs, insights and the sentiment grid |
 
 They also cover retries under 30% server errors, layout-change detection in each format, an unknown community, incremental runs after new posts, prompt cancellation, and a retried job being a no-op. The Threadit rate-limit test waits about a minute by design.

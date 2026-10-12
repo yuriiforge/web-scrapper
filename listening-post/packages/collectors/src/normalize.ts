@@ -27,3 +27,13 @@ function decodeEntities(s: string): string {
     return NAMED[code.toLowerCase()] ?? match;
   });
 }
+
+/**
+ * A title followed by its body as one text, with a full stop between them when the title has no
+ * ending punctuation, so "Thoughts on X?" stays as is and "X is great" does not run into the body.
+ */
+export function withTitle(title: string, body: string): string {
+  const t = title.trim();
+  if (!body.trim()) return t;
+  return /[.!?:…]$/.test(t) ? `${t} ${body}` : `${t}. ${body}`;
+}

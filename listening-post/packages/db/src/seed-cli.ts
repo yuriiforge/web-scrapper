@@ -11,6 +11,7 @@ interface DemoSource {
   strategy: Strategy;
   schedule: string | null;
   config: Record<string, unknown>;
+  budgetUsdMonth?: number;
 }
 
 const threadit = (community: string, schedule: string | null): DemoSource => ({
@@ -29,6 +30,15 @@ const agora = (category: string, format: 'json' | 'html', schedule: string | nul
   config: { category, format },
 });
 
+const ratewell = (company: string, schedule: string | null, budgetUsdMonth?: number): DemoSource => ({
+  name: `Ratewell · ${company}`,
+  site: 'ratewell',
+  strategy: 'html',
+  schedule,
+  config: { company },
+  budgetUsdMonth,
+});
+
 const DEMO: { client: string; sources: DemoSource[] }[] = [
   {
     client: 'Northwind Outdoors',
@@ -36,11 +46,18 @@ const DEMO: { client: string; sources: DemoSource[] }[] = [
       threadit('gb', '*/15 * * * *'),
       threadit('electric_cars', '*/30 * * * *'),
       agora('meal-kits', 'json', '*/20 * * * *'),
+      ratewell('voltra-motors', '0 */6 * * *'),
     ],
   },
   {
     client: 'Bluefin Media',
-    sources: [threadit('de', '0 * * * *'), threadit('online_banks', null), agora('online-banks', 'html', '0 * * * *')],
+    sources: [
+      threadit('de', '0 * * * *'),
+      threadit('online_banks', null),
+      agora('online-banks', 'html', '0 * * * *'),
+      // A budget, so escalation to the paid unblocker is capped at $1 a month.
+      ratewell('ledgerly', '0 */6 * * *', 1),
+    ],
   },
 ];
 

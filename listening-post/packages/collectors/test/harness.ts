@@ -48,6 +48,7 @@ export interface MockCtx {
   corpus: {
     threadit: { posts: { id: string; community: string; comments: { id: string }[] }[] };
     agora: { topics: { id: string; category: string; lastPosted: number; posts: { id: string; text: string }[] }[] };
+    ratewell: { companies: { slug: string; reviews: { id: string; rating: number }[] }[] };
   };
   state: { requests: { entries: { path: string; status: number; site: string }[] } };
 }
@@ -96,7 +97,12 @@ export function executorDeps(handle: DbHandle, mock: MockWeb): ExecutorDeps {
     limiter: new PgRateLimiter(handle.db),
     defaultRatePerMinute: 100_000,
     rawRetentionDays: 30,
-    collectorDeps: { baseUrl: mock.url, threadit: { clientId: 'dev-id', clientSecret: 'dev-secret' } },
+    collectorDeps: {
+      baseUrl: mock.url,
+      threadit: { clientId: 'dev-id', clientSecret: 'dev-secret' },
+      passgate: { baseUrl: mock.url, key: 'pg-dev-key', creditUsd: 0.002 },
+      browser: { headless: true, minuteUsd: 0.01 },
+    },
     http: { baseDelayMs: 10 },
   };
 }
@@ -105,7 +111,7 @@ export async function createSource(
   handle: DbHandle,
   config: Record<string, unknown>,
   name = 'test source',
-  site: 'threadit' | 'agora' = 'threadit',
+  site: 'threadit' | 'agora' | 'ratewell' = 'threadit',
 ): Promise<string> {
   const [client] = await handle.db
     .insert(clients)

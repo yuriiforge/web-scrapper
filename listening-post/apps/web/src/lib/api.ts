@@ -61,6 +61,8 @@ export interface Run {
   itemsNew: number;
   errorClass: string | null;
   errorMessage: string | null;
+  /** The escalation-ladder step the run ended on. */
+  strategy: string | null;
 }
 
 export interface RawResponseMeta {
@@ -84,6 +86,7 @@ export interface Item {
   collectedAt: string;
   sourceId: string;
   sourceName: string;
+  meta: { rating?: number; verified?: boolean } & Record<string, unknown>;
 }
 
 export interface Overview {

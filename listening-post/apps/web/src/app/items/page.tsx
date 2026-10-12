@@ -43,6 +43,7 @@ async function ItemsBody({ searchParams }: { searchParams: PageProps<"/items">["
           <option value="">All sites</option>
           <option value="threadit">Threadit</option>
           <option value="agora">Agora</option>
+          <option value="ratewell">Ratewell</option>
         </select>
         <label className="sr-only" htmlFor="sourceId">
           Source
@@ -99,6 +100,11 @@ async function ItemsBody({ searchParams }: { searchParams: PageProps<"/items">["
                     {item.text || <span className="italic text-zinc-400">(empty)</span>}
                   </p>
                   <p className="mt-1 text-xs text-zinc-500">
+                    {typeof item.meta.rating === "number" && (
+                      <span className="mr-1" aria-label={`Rated ${item.meta.rating} out of 5`}>
+                        <span aria-hidden>{"★".repeat(item.meta.rating)}{"☆".repeat(5 - item.meta.rating)}</span> ·
+                      </span>
+                    )}
                     {item.author ?? "unknown author"} · <span className="font-mono">{item.externalId}</span>
                   </p>
                 </td>

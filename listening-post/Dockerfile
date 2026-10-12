@@ -24,7 +24,10 @@ RUN npm run build -w @lp/api -w @lp/worker -w @lp/web
 FROM base AS api-deps
 RUN npm ci --omit=dev -w @lp/api && npm cache clean --force
 
-FROM base AS worker-deps
+# The worker runs Chromium (Playwright), which needs glibc, so its stages use Debian instead of Alpine.
+FROM node:22-bookworm-slim AS worker-deps
+WORKDIR /repo
+COPY --from=base /repo ./
 RUN npm ci --omit=dev -w @lp/worker && npm cache clean --force
 
 FROM node:22-alpine AS api
@@ -37,10 +40,12 @@ USER node
 EXPOSE 3001
 CMD ["node", "dist/index.js"]
 
-FROM node:22-alpine AS worker
-ENV NODE_ENV=production
+FROM node:22-bookworm-slim AS worker
+ENV NODE_ENV=production PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 WORKDIR /app
 COPY --from=worker-deps /repo/node_modules ./node_modules
+# The Chromium headless shell matching the installed Playwright version, plus its system libraries.
+RUN npx playwright install --with-deps --only-shell chromium && rm -rf /var/lib/apt/lists/*
 COPY --from=build /repo/apps/worker/dist ./dist
 USER node
 CMD ["node", "dist/index.js"]

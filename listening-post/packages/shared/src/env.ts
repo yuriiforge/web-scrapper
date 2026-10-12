@@ -23,6 +23,17 @@ export const workerEnv = baseEnv.extend({
   DEFAULT_RATE_PER_MINUTE: z.coerce.number().int().min(1).default(120),
   THREADIT_CLIENT_ID: z.string().min(1).default('dev-id'),
   THREADIT_CLIENT_SECRET: z.string().min(1).default('dev-secret'),
+  /** PassGate, the paid unblocker; defaults to the same host as the sources (mock-web). */
+  PASSGATE_URL: z.url().optional(),
+  PASSGATE_KEY: z.string().min(1).default('pg-dev-key'),
+  /** Price of one PassGate credit in USD, for the cost ledger. */
+  PASSGATE_CREDIT_USD: z.coerce.number().nonnegative().default(0.002),
+  /** Price of one minute of browser time in USD (compute for a hosted browser). */
+  BROWSER_MINUTE_USD: z.coerce.number().nonnegative().default(0.01),
+  BROWSER_HEADLESS: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
 });
 
 /** Validates env against a schema; exits with a readable message on failure. Empty strings count as unset. */

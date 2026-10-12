@@ -13,6 +13,18 @@ export interface ParsedItem {
   /** ISO 3166-1 alpha-2, or null when the source does not say. */
   country: string | null;
   publishedAt: Date | null;
+  /** Site-specific fields worth keeping, e.g. { rating: 4 }. */
+  meta?: Record<string, unknown>;
+}
+
+/** One billable event, recorded in the cost ledger against the run, source and client. */
+export interface Charge {
+  /** e.g. "passgate", "browser". */
+  provider: string;
+  units: number;
+  /** e.g. "credit", "browser-minute". */
+  unit: string;
+  usd: number;
 }
 
 export interface RunContext {
@@ -23,6 +35,10 @@ export interface RunContext {
   now: () => number;
   /** ETag from the last successful run for a URL, for If-None-Match. New ETags are saved by the executor. */
   etag: (url: string) => Promise<string | undefined>;
+  /** Records a cost immediately, so spend is kept even if the run fails later. */
+  charge: (charge: Charge) => Promise<void>;
+  /** What is left of the source's monthly budget in USD, or null when it has none. Check before paid calls. */
+  budgetLeftUsd: () => Promise<number | null>;
 }
 
 /** What one fetchPage call produced. */
@@ -34,10 +50,11 @@ export interface FetchResult<State> {
 
 /**
  * One source's collector, created per run. Adding a site means implementing this; the run
- * executor handles queueing, retries, raw storage, upserts, checkpoints and run status.
+ * executor handles queueing, retries, raw storage, upserts, costs, checkpoints and run status.
  */
 export interface Collector<State = unknown, Checkpoint = unknown> {
   readonly site: Site;
+  /** The strategy in use; collectors with an escalation ladder change it during a run. */
   readonly strategy: Strategy;
   /** Outbound requests per minute to this site; the worker default applies when unset. */
   readonly ratePerMinute?: number;
@@ -51,9 +68,14 @@ export interface Collector<State = unknown, Checkpoint = unknown> {
   parse(raw: RawResponse): ParsedItem[];
   /** Checkpoint to save after a successful run. */
   checkpoint(): Checkpoint | null;
+  /** Releases what the run held open (a browser, for example). Called once, success or not. */
+  close?(ctx: RunContext): Promise<void>;
 }
 
 export interface CollectorDeps {
   baseUrl: string;
   threadit: { clientId: string; clientSecret: string };
+  passgate?: { baseUrl: string; key: string; creditUsd: number };
+  /** `hideWebdriver: false` exists only to prove in tests that hiding it is what gets past the check. */
+  browser?: { minuteUsd: number; headless: boolean; hideWebdriver?: boolean };
 }

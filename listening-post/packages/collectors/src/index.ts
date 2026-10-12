@@ -4,6 +4,8 @@ export * from './errors';
 export * from './http';
 export * from './limiter';
 export * from './normalize';
+export * from './ratewell/collector';
+export * from './ratewell/parse';
 export * from './registry';
 export * from './robots';
 export * from './run';

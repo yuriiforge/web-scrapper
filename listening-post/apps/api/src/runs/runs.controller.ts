@@ -22,6 +22,7 @@ const RUN_COLUMNS = {
   itemsNew: runs.itemsNew,
   errorClass: runs.errorClass,
   errorMessage: runs.errorMessage,
+  strategy: runs.strategy,
 };
 
 @Controller('runs')

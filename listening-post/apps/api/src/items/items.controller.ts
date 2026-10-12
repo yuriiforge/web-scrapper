@@ -54,6 +54,7 @@ export class ItemsController {
         collectedAt: items.collectedAt,
         sourceId: items.sourceId,
         sourceName: sources.name,
+        meta: items.meta,
         sortedAt: sql<string>`${sortKey}`.mapWith((v: string | Date) => new Date(v)),
       })
       .from(items)

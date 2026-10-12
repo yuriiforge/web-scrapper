@@ -98,6 +98,8 @@ export const runs = pgTable(
     itemsNew: integer('items_new').notNull().default(0),
     errorClass: errorClassEnum('error_class'),
     errorMessage: text('error_message'),
+    /** The escalation-ladder step the run ended on (e.g. it started on html and needed the unblocker). */
+    strategy: strategyEnum('strategy'),
     createdAt: createdAt(),
   },
   (t) => [index('runs_source_created_idx').on(t.sourceId, t.createdAt), index('runs_status_idx').on(t.status)],
@@ -143,6 +145,8 @@ export const items = pgTable(
     publishedAt: timestamp('published_at', { withTimezone: true }),
     collectedAt: timestamp('collected_at', { withTimezone: true }).notNull().defaultNow(),
     rawResponseId: bigint('raw_response_id', { mode: 'number' }).references(() => rawResponses.id, { onDelete: 'set null' }),
+    /** Site-specific fields worth keeping, e.g. a review's rating or a post's score. */
+    meta: jsonb('meta').notNull().default({}),
   },
   (t) => [
     uniqueIndex('items_site_external_uq').on(t.site, t.externalId),

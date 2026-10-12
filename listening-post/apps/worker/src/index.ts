@@ -29,6 +29,8 @@ const executor: ExecutorDeps = {
   collectorDeps: {
     baseUrl: env.SOURCE_BASE_URL,
     threadit: { clientId: env.THREADIT_CLIENT_ID, clientSecret: env.THREADIT_CLIENT_SECRET },
+    passgate: { baseUrl: env.PASSGATE_URL ?? env.SOURCE_BASE_URL, key: env.PASSGATE_KEY, creditUsd: env.PASSGATE_CREDIT_USD },
+    browser: { headless: env.BROWSER_HEADLESS, minuteUsd: env.BROWSER_MINUTE_USD },
   },
 };
 
